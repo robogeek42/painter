@@ -29,7 +29,9 @@ bool debug = false;
 
 //------------------------------------------------------------
 // Configuration vars
-int key_wait = 15;
+int key_wait = 1;
+int anim_speed = 10;
+int move_speed = 2;
 //------------------------------------------------------------
 
 
@@ -43,6 +45,9 @@ Position pos = {0,0};
 
 // counters
 clock_t key_wait_ticks;
+clock_t anim_ticks;
+
+int player_frame = 0;
 
 void wait();
 void game_loop();
@@ -70,6 +75,10 @@ int main(/*int argc, char *argv[]*/)
 	load_images();
 	create_sprites();
 
+	pos.x = (gScreenWidth/2) & 0xFFFFF0;
+	pos.y = (gScreenHeight/2) & 0xFFFFF0;
+	vdp_move_sprite_to(pos.x, pos.y);
+
 	game_loop();
 
 my_exit:
@@ -85,9 +94,10 @@ void game_loop()
 	int dir=0;
 	
 	key_wait_ticks = clock();
+	anim_ticks = clock();
 
 	do {
-		int dir=-1;
+		int dir=0;
 
 		// player movement
 		if ( vdp_check_key_press( KEY_LEFT ) ) { dir |= BITS_LEFT; }
@@ -99,10 +109,10 @@ void game_loop()
 		if ( dir>0 && ( key_wait_ticks < clock() ) ) {
 			key_wait_ticks = clock() + key_wait;
 
-			if ( dir & BITS_UP ) pos.y--;
-			if ( dir & BITS_RIGHT ) pos.x++;
-			if ( dir & BITS_DOWN ) pos.y++;
-			if ( dir & BITS_LEFT ) pos.x--;
+			if ( dir & BITS_UP ) pos.y -= move_speed;
+			if ( dir & BITS_RIGHT ) pos.x += move_speed;
+			if ( dir & BITS_DOWN ) pos.y += move_speed;
+			if ( dir & BITS_LEFT ) pos.x -= move_speed;
 
 			draw_player();
 		}
@@ -120,6 +130,13 @@ void game_loop()
 			TAB(6,8);printf("Are you sure?");
 			char k=getchar(); 
 			if (k=='y' || k=='Y') exit=1;
+		}
+
+		if ( anim_ticks < clock() )
+		{
+			anim_ticks = clock() + anim_speed;
+			player_frame=(player_frame+1)%4; 
+			vdp_nth_sprite_frame( player_frame );
 		}
 
 		vdp_update_key_state();
@@ -151,4 +168,5 @@ void create_sprites()
 
 void draw_player()
 {
+	vdp_move_sprite_to(pos.x, pos.y);
 }
