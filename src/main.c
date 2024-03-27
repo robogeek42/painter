@@ -75,8 +75,8 @@ int main(/*int argc, char *argv[]*/)
 	load_images();
 	create_sprites();
 
-	pos.x = (gScreenWidth/2) & 0xFFFFF0;
-	pos.y = (gScreenHeight/2) & 0xFFFFF0;
+	pos.x = (gScreenWidth/2) & 0xFFFFF8;
+	pos.y = (gScreenHeight/2) & 0xFFFFF8;
 	vdp_move_sprite_to(pos.x, pos.y);
 
 	game_loop();
@@ -149,8 +149,8 @@ void load_images()
 	char fname[40];
 	for (int fn=1; fn<=4; fn++)
 	{
-		sprintf(fname, "img/ball%02d.rgb2", fn);
-		load_bitmap_file(fname, 16, 16, 0 + fn-1);
+		sprintf(fname, "img/brush%02d.rgb2", fn);
+		load_bitmap_file(fname, 8, 8, 0 + fn-1);
 	}
 }
 
