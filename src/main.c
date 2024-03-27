@@ -24,6 +24,10 @@ int gScreenHeight = 240;
 #define BITS_RIGHT 2
 #define BITS_DOWN 4
 #define BITS_LEFT 8
+#define BU 1
+#define BR 2
+#define BD 4
+#define BL 8
 
 bool debug = false;
 
@@ -31,7 +35,6 @@ bool debug = false;
 // Configuration vars
 int key_wait = 1;
 int anim_speed = 10;
-int move_speed = 2;
 //------------------------------------------------------------
 
 
@@ -42,6 +45,27 @@ typedef struct {
 
 // Position of player
 Position pos = {0,0};
+
+typedef struct {
+	Position A;
+	Position B;
+	bool horiz;
+	int valid_next_keyA[3];
+	int valid_next_dirA[3];
+	int valid_next_keyB[3];
+	int valid_next_dirB[3];
+} PathSegment;
+
+PathSegment paths[] = {
+	// A          B         horiz     
+	/* 0 */ { {100,100}, {200,100}, true,  { BD,  0, 0 }, { 3, -1, -1 }, { BD, BR,  0 }, {  1,  4, -1 } },
+	/* 1 */ { {200,100}, {200,150}, false, { BL, BR, 0 }, { 0,  4, -1 }, { BL,  0,  0 }, {  2, -1, -1 } },
+	/* 2 */ { {200,150}, {100,150}, true,  { BU,  0, 0 }, { 1, -1, -1 }, { BU,  0,  0 }, {  3, -1, -1 } },
+	/* 3 */ { {100,150}, {100,100}, false, { BR,  0, 0 }, { 2, -1, -1 }, { BR,  0,  0 }, {  0, -1, -1 } },
+	/* 4 */ { {200,100}, {250,100}, true,  { BD, BL, 0 }, { 1,  0, -1 }, {  0,  0,  0 }, { -1, -1, -1 } },
+};
+int num_segments = 5;
+int current_ps = 0;
 
 // counters
 clock_t key_wait_ticks;
@@ -54,6 +78,8 @@ void game_loop();
 void load_images();
 void create_sprites();
 void draw_player();
+void draw_path_segment( PathSegment *pps );
+void move_along_path_segment( PathSegment *pps, uint8_t dir);
 
 void wait()
 {
@@ -81,7 +107,6 @@ int main(/*int argc, char *argv[]*/)
 
 	game_loop();
 
-my_exit:
 	vdp_mode(0);
 	vdp_logical_scr_dims(true);
 	vdp_cursor_enable( true );
@@ -91,15 +116,22 @@ my_exit:
 void game_loop()
 {
 	int exit=0;
-	int dir=0;
 	
 	key_wait_ticks = clock();
 	anim_ticks = clock();
 
-	do {
-		int dir=0;
+	for (int p = 0; p < num_segments; p++)
+	{
+		draw_path_segment( &paths[p] );
+	}
+	pos.x = paths[current_ps].A.x;
+	pos.y = paths[current_ps].A.y;
+	draw_player();
 
-		// player movement
+	do {
+		uint8_t dir=0;
+
+		// player movement key presses
 		if ( vdp_check_key_press( KEY_LEFT ) ) { dir |= BITS_LEFT; }
 		if ( vdp_check_key_press( KEY_RIGHT ) ) { dir |= BITS_RIGHT; }
 		if ( vdp_check_key_press( KEY_UP ) ) { dir |= BITS_UP; }
@@ -109,12 +141,10 @@ void game_loop()
 		if ( dir>0 && ( key_wait_ticks < clock() ) ) {
 			key_wait_ticks = clock() + key_wait;
 
-			if ( dir & BITS_UP ) pos.y -= move_speed;
-			if ( dir & BITS_RIGHT ) pos.x += move_speed;
-			if ( dir & BITS_DOWN ) pos.y += move_speed;
-			if ( dir & BITS_LEFT ) pos.x -= move_speed;
+			move_along_path_segment(&paths[current_ps], dir);
 
 			draw_player();
+			TAB(0,0);printf("%d,%d %d %d", pos.x, pos.y, current_ps, dir);
 		}
 
 		if ( vdp_check_key_press( KEY_backtick ) )  // ' - toggle debug
@@ -168,5 +198,84 @@ void create_sprites()
 
 void draw_player()
 {
-	vdp_move_sprite_to(pos.x, pos.y);
+	vdp_move_sprite_to(pos.x-4, pos.y-4);
+	vdp_gcol(0,15);
+	vdp_point( pos.x, pos.y );
 }
+
+void draw_path_segment( PathSegment *pps )
+{
+	vdp_gcol(0, 8);
+	vdp_move_to( pps->A.x, pps->A.y );
+	vdp_line_to( pps->B.x, pps->B.y );
+}
+
+void move_along_path_segment( PathSegment *pps, uint8_t dir)
+{
+	if ( pps->horiz )
+	{
+		Position *less, *more;
+		if ( pps->A.x < pps->B.x ) 
+		{
+			less = &pps->A;
+			more = &pps->B;
+		} else {
+			less = &pps->B;
+			more = &pps->A;
+		}
+
+		if ( (dir & BITS_LEFT) && (pos.x > less->x) ) pos.x -= 1;
+		if ( (dir & BITS_RIGHT) && (pos.x < more->x) ) pos.x += 1;
+
+		for (int i=0; i<3; i++)
+		{
+			if ( pps->valid_next_keyA[i]>0 && pos.x == pps->A.x )
+			{
+				if ( (dir & pps->valid_next_keyA[i]) ) 
+				{
+					current_ps = pps->valid_next_dirA[i];
+				}
+			}
+			if ( pps->valid_next_keyB[i]>0 && pos.x == pps->B.x )
+			{
+				if ( (dir & pps->valid_next_keyB[i]) ) 
+				{
+					current_ps = pps->valid_next_dirB[i];
+				}
+			}
+		}
+
+	} else {
+		Position *less, *more;
+		if ( pps->A.y < pps->B.y ) 
+		{
+			less = &pps->A;
+			more = &pps->B;
+		} else {
+			less = &pps->B;
+			more = &pps->A;
+		}
+
+		if ( (dir & BITS_UP) && (pos.y > less->y) ) pos.y -= 1;
+		if ( (dir & BITS_DOWN) && (pos.y < more->y) ) pos.y += 1;
+
+		for (int i=0; i<3; i++)
+		{
+			if ( pps->valid_next_keyA[i]>0 && pos.y == pps->A.y )
+			{
+				if ( (dir & pps->valid_next_keyA[i]) ) 
+				{
+					current_ps = pps->valid_next_dirA[i];
+				}
+			}
+			if ( pps->valid_next_keyB[i]>0 && pos.y == pps->B.y )
+			{
+				if ( (dir & pps->valid_next_keyB[i]) ) 
+				{
+					current_ps = pps->valid_next_dirB[i];
+				}
+			}
+		}
+	}
+}
+
