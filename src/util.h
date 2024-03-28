@@ -61,6 +61,6 @@ void pop_sin_lookup();
 float sinLU(float angle);
 float cosLU(float angle);
 
-void test_progbar();
+uint24_t readPixelColour(volatile SYSVAR *sys_vars, int x, int y);
 
 #endif

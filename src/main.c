@@ -57,45 +57,71 @@ typedef struct {
 	bool horiz;
 	ValidNext nextA[3]; // thre other possible directions to move in from A
 	ValidNext nextB[3]; // thre other possible directions to move in from B
+	int count;
 } PathSegment;
 
 PathSegment paths[] = {
 	// A          B         horiz     
 	/* 0 */ { {100,100}, {200,100}, true,  
 		{ { BD, 4 }, {}, {} }, 
-		{ { BD, 1 }, { BR, 5 }, {} } 
+		{ { BD, 1 }, { BR, 5 }, {} },
+		100
 	},
 	/* 1 */ { {200,100}, {200,150}, false, 
 		{ { BL, 0 }, { BR, 5 }, {} },
-		{ { BR, 7 }, { BD, 2 }, {} }
+		{ { BR, 7 }, { BD, 2 }, {} },
+		50
 	},
 	/* 2 */ { {200,150}, {200,200}, false, 
 		{ { BU, 1 }, { BR, 7 }, {} },
-		{ { BL, 3 }, {}, {} }
+		{ { BL, 3 }, {}, {} },
+		50
 	},
 	/* 3 */ { {200,200}, {100,200}, true,  
 		{ { BU, 2 }, {}, {} },
-		{ { BU, 4 }, {}, {} }
+		{ { BU, 4 }, {}, {} },
+		100
 	},
 	/* 4 */ { {100,200}, {100,100}, false, 
 		{ { BR, 3 }, {}, {} },
-	    { { BR, 0 }, {}, {} }
+	    { { BR, 0 }, {}, {} },
+		100
 	},
 	/* 5 */ { {200,100}, {250,100}, true, 
 		{ { BD, 1 }, { BL, 0 }, {} },
-		{ { BD, 6 }, {}, {} }
+		{ { BD, 6 }, {}, {} },
+		50
 	},
 	/* 6 */ { {250,100}, {250,150}, false, 
 		{ { BL, 5 }, {}, {} },
-	    { { BL, 7 }, {}, {} }
+	    { { BL, 7 }, {}, {} },
+		50
 	},
 	/* 7 */ { {250,150}, {200,150}, true, 
 		{ { BU, 6 }, {}, {} },
-		{ { BU, 1 }, { BD, 2 }, {} }
+		{ { BU, 1 }, { BD, 2 }, {} },
+		50
 	},
 };
 int num_segments = 8;
-int current_ps = 0;
+int curr_path_seg = 0;
+
+typedef struct {
+	int num_segments;
+	int segments[10];
+	bool seg_complete[10];
+	bool complete;
+	int value;
+	int colour;
+	Position TopLeft;
+	Position BotRight;
+} Shape;
+
+Shape shapes[] = {
+	{ 5, { 0, 1, 2, 3, 4 }, {}, false, 300, 23, {100,100},{200,200} },
+	{ 4, { 5, 6, 7, 1 }, {}, false, 100, 28, {200,100},{250,150} }
+};
+int num_shapes = 2;
 
 // counters
 clock_t key_wait_ticks;
@@ -112,6 +138,8 @@ void draw_map();
 void draw_map_debug();
 void draw_path_segment( PathSegment *pps );
 void move_along_path_segment( PathSegment *pps, uint8_t dir);
+void check_shape_complete();
+void fill_shape( int s );
 
 void wait()
 {
@@ -119,9 +147,11 @@ void wait()
 	if (k=='q') exit(0);
 }
 
+static volatile SYSVAR *sys_vars = NULL;
+
 int main(/*int argc, char *argv[]*/)
 {
-	vdp_vdu_init();
+	sys_vars = vdp_vdu_init();
 	if ( vdp_key_init() == -1 ) return 1;
 	vdp_set_key_event_handler( key_event_handler );
 
@@ -156,8 +186,8 @@ void game_loop()
 	vdp_activate_sprites( 1 ); //  have to reactivate sprites after a clear
 	draw_map();
 
-	pos.x = paths[current_ps].A.x;
-	pos.y = paths[current_ps].A.y;
+	pos.x = paths[curr_path_seg].A.x;
+	pos.y = paths[curr_path_seg].A.y;
 	draw_player();
 
 	do {
@@ -174,10 +204,10 @@ void game_loop()
 		{
 			key_wait_ticks = clock() + key_wait;
 
-			move_along_path_segment(&paths[current_ps], dir);
+			move_along_path_segment(&paths[curr_path_seg], dir);
 
 			draw_player();
-			TAB(0,0);printf("%d,%d %d %d", pos.x, pos.y, current_ps, dir);
+			//TAB(0,0);printf("%d,%d seg:%d cnt:%d", pos.x, pos.y, curr_path_seg, paths[curr_path_seg].count);
 		}
 
 		if ( vdp_check_key_press( KEY_backtick ) )  // ' - toggle debug
@@ -267,11 +297,57 @@ void draw_map_debug()
 		draw_map();
 	}
 }
+
+void set_point( Position *ppos )
+{
+	uint24_t col = 0;
+	vdp_hide_sprite();
+	col = readPixelColour( sys_vars, ppos->x, ppos->y );
+	vdp_show_sprite();
+	if ( col == 0x555555 && paths[curr_path_seg].count>0 )
+	{
+		// reduce count in this line segment
+		paths[curr_path_seg].count--;
+		if ( paths[curr_path_seg].count == 0 )
+		{
+			check_shape_complete();
+		}
+		// also reduce count in connected segments
+		if ( pos.x == paths[curr_path_seg].A.x && pos.y == paths[curr_path_seg].A.y )
+		{
+			for (int n=0; n<3; n++)
+			{
+				if ( paths[curr_path_seg].nextA[n].key > 0 )
+				{
+					if ( paths[ paths[curr_path_seg].nextA[n].dir ].count > 0)
+					{
+						paths[ paths[curr_path_seg].nextA[n].dir ].count--;
+					}
+				}
+			}
+		}
+		if ( pos.x == paths[curr_path_seg].B.x && pos.y == paths[curr_path_seg].B.y )
+		{
+			for (int n=0; n<3; n++)
+			{
+				if ( paths[curr_path_seg].nextB[n].key > 0 )
+				{
+					if ( paths[ paths[curr_path_seg].nextB[n].dir ].count > 0)
+					{
+						paths[ paths[curr_path_seg].nextB[n].dir ].count--;
+					}
+				}
+			}
+		}
+	}
+	vdp_gcol(0,15);
+	vdp_point( ppos->x, ppos->y );
+}
+
 void draw_player()
 {
 	vdp_move_sprite_to(pos.x-4, pos.y-4);
-	vdp_gcol(0,15);
-	vdp_point( pos.x, pos.y );
+	set_point( &pos );
 }
 
 void draw_path_segment( PathSegment *pps )
@@ -288,7 +364,7 @@ bool is_near( int a, int b, int plusminus )
 void move_along_path_segment( PathSegment *pps, uint8_t dir)
 {
 	int prox = 3;
-	vdp_point( pos.x, pos.y );
+	set_point( &pos );
 
 	if ( pps->horiz ) // Currently on a Horizontal path
 	{
@@ -305,7 +381,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 		if ( (dir & BITS_LEFT) && (pos.x > less->x) ) pos.x -= 1;
 		if ( (dir & BITS_RIGHT) && (pos.x < more->x) ) pos.x += 1;
 
-		vdp_point( pos.x, pos.y );
+		set_point( &pos );
 
 		// See if we can move to a new segment
 		for (int i=0; i<3; i++)
@@ -318,7 +394,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 				{
 					if ( pos.x == pps->A.x )
 					{
-						current_ps = pps->nextA[i].dir;
+						curr_path_seg = pps->nextA[i].dir;
 					} 
 				}
 				else  // the next section is vertical
@@ -328,12 +404,12 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 						while (pos.x != pps->A.x)
 						{
 							pos.x += SIGN( pps->A.x - pos.x );
-							vdp_point( pos.x, pos.y );
+							set_point( &pos );
 						}
 						// Move to the next segment
-						current_ps = pps->nextA[i].dir;
+						curr_path_seg = pps->nextA[i].dir;
 						// we may have jumped down so make sure we are on the line
-						pos.x = paths[current_ps].A.x; // A or B doesn't matter
+						pos.x = paths[curr_path_seg].A.x; // A or B doesn't matter
 					}
 				}
 			}
@@ -345,7 +421,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 				{
 					if ( pos.x == pps->B.x )
 					{
-						current_ps = pps->nextB[i].dir;
+						curr_path_seg = pps->nextB[i].dir;
 					} 
 				}
 				else // the next section is vertical
@@ -356,12 +432,12 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 						while (pos.x != pps->B.x)
 						{
 							pos.x += SIGN( pps->B.x - pos.x );
-							vdp_point( pos.x, pos.y );
+							set_point( &pos );
 						}
 						// Move to the next segment
-						current_ps = pps->nextB[i].dir;
+						curr_path_seg = pps->nextB[i].dir;
 						// we may have jumped down so make sure we are on the line
-						pos.x = paths[current_ps].B.x; // A or B doesn't matter
+						pos.x = paths[curr_path_seg].B.x; // A or B doesn't matter
 					}
 				}
 			}
@@ -392,7 +468,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 				{
 					if ( pos.y == pps->A.y )
 					{
-						current_ps = pps->nextA[i].dir;
+						curr_path_seg = pps->nextA[i].dir;
 					} 
 				}
 				else  // the next section is horizontal
@@ -402,12 +478,12 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 						while (pos.y != pps->A.y)
 						{
 							pos.y += SIGN( pps->A.y - pos.y );
-							vdp_point( pos.x, pos.y );
+							set_point( &pos );
 						}
 						// Move to the next segment
-						current_ps = pps->nextA[i].dir;
+						curr_path_seg = pps->nextA[i].dir;
 						// we may have jumped down so make sure we are on the line
-						pos.y = paths[current_ps].A.y; // A or B doesn't matter
+						pos.y = paths[curr_path_seg].A.y; // A or B doesn't matter
 					}
 				}
 			}
@@ -419,7 +495,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 				{
 					if ( pos.y == pps->B.y )
 					{
-						current_ps = pps->nextB[i].dir;
+						curr_path_seg = pps->nextB[i].dir;
 					} 
 				}
 				else // the next section is horizontal
@@ -430,16 +506,48 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 						while (pos.y != pps->B.y)
 						{
 							pos.y += SIGN( pps->B.y - pos.y );
-							vdp_point( pos.x, pos.y );
+							set_point( &pos );
 						}
 						// Move to the next segment
-						current_ps = pps->nextB[i].dir;
+						curr_path_seg = pps->nextB[i].dir;
 						// we may have jumped down so make sure we are on the line
-						pos.y = paths[current_ps].B.y; // A or B doesn't matter
+						pos.y = paths[curr_path_seg].B.y; // A or B doesn't matter
 					}
 				}
 			}
 		}
 	}
 }
+
+void check_shape_complete()
+{
+	for (int s=0; s < num_shapes; s++)
+	{
+		bool shape_complete = shapes[s].complete;
+		if (!shape_complete)
+		{
+			int incomplete = shapes[s].num_segments;
+			for (int seg=0; seg < shapes[s].num_segments; seg++)
+			{
+				if ( paths[ shapes[s].segments[seg] ].count <= 0 )
+				{
+					shapes[s].seg_complete[seg] = true;
+					incomplete--;
+				}
+			}
+			if (incomplete==0) {
+				 shapes[s].complete = true;
+				 fill_shape( s );
+			}
+		}
+	}
+}
+
+void fill_shape( int s )
+{
+	vdp_gcol(0, shapes[s].colour);
+	vdp_move_to( shapes[s].TopLeft.x+1, shapes[s].TopLeft.y+1 );
+	vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
+}
+
 
