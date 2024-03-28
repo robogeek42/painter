@@ -267,6 +267,16 @@ void draw_map()
 	{
 		draw_path_segment( &paths[p] );
 	}
+	vdp_write_at_graphics_cursor();
+	vdp_gcol(0,15);
+	for ( int s=0; s < num_shapes; s++ )
+	{
+		int w = shapes[s].BotRight.x - shapes[s].TopLeft.x;
+		int h = shapes[s].BotRight.y - shapes[s].TopLeft.y;
+		vdp_move_to( shapes[s].TopLeft.x + (w/2) - 12, shapes[s].TopLeft.y + (h/2) - 4);
+		printf("%d",shapes[s].value);
+	}
+	vdp_write_at_text_cursor();
 }
 
 void draw_map_debug()
@@ -546,8 +556,24 @@ void check_shape_complete()
 void fill_shape( int s )
 {
 	vdp_gcol(0, shapes[s].colour);
-	vdp_move_to( shapes[s].TopLeft.x+1, shapes[s].TopLeft.y+1 );
-	vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
+	int x1 = shapes[s].TopLeft.x;
+	int y1 = shapes[s].TopLeft.y;
+	int x2 = shapes[s].BotRight.x;
+	int y2 = shapes[s].BotRight.y;
+	// fast fill:
+	//vdp_move_to( shapes[s].TopLeft.x+1, shapes[s].TopLeft.y+1 );
+	//vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
+	// slow fill
+	for (int x=x1+1; x<x2; x++)
+	{
+		vdp_move_to( x, y1+1 );
+		vdp_line_to( x, y2-1 );
+		clock_t ticks=clock()+1;
+		while (ticks > clock()) {
+			vdp_update_key_state();
+		};
+	}
+	
 }
 
 
