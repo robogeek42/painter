@@ -16,7 +16,7 @@
 #include <stdbool.h>
 #include "util.h"
 
-int gMode = 8; 
+int gMode = 9; 
 int gScreenWidth = 320;
 int gScreenHeight = 240;
 
@@ -118,8 +118,8 @@ typedef struct {
 } Shape;
 
 Shape shapes[] = {
-	{ 5, { 0, 1, 2, 3, 4 }, {}, false, 300, 23, {100,100},{200,200} },
-	{ 4, { 5, 6, 7, 1 }, {}, false, 100, 28, {200,100},{250,150} }
+	{ 5, { 0, 1, 2, 3, 4 }, {}, false, 300, 9, {100,100},{200,200} },
+	{ 4, { 5, 6, 7, 1 }, {}, false, 100, 13, {200,100},{250,150} }
 };
 int num_shapes = 2;
 
@@ -129,6 +129,15 @@ clock_t anim_ticks;
 
 int player_frame = 0;
 
+bool score_changed = true;
+int score = 0;
+int highscore = 0;
+int frame = 1;
+int skill = 1;
+int bonus = 2600;
+
+int main_colour = 9;
+
 void wait();
 void game_loop();
 void load_images();
@@ -136,10 +145,13 @@ void create_sprites();
 void draw_player();
 void draw_map();
 void draw_map_debug();
+void draw_screen();
+void update_scores();
 void draw_path_segment( PathSegment *pps );
 void move_along_path_segment( PathSegment *pps, uint8_t dir);
 void check_shape_complete();
-void fill_shape( int s );
+void fill_shape( int s, bool fast );
+void flash_screen(int repeat, int speed);
 
 void wait()
 {
@@ -158,6 +170,7 @@ int main(/*int argc, char *argv[]*/)
 	// setup complete
 	vdp_mode(gMode);
 	vdp_logical_scr_dims(false);
+	//vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong
 	//vdu_set_graphics_viewport()
 
 	load_images();
@@ -184,7 +197,11 @@ void game_loop()
 
 	vdp_clear_screen();
 	vdp_activate_sprites( 1 ); //  have to reactivate sprites after a clear
+	draw_screen();
 	draw_map();
+	update_scores();
+
+	//flash_screen(3,25);
 
 	pos.x = paths[curr_path_seg].A.x;
 	pos.y = paths[curr_path_seg].A.y;
@@ -208,6 +225,9 @@ void game_loop()
 
 			draw_player();
 			//TAB(0,0);printf("%d,%d seg:%d cnt:%d", pos.x, pos.y, curr_path_seg, paths[curr_path_seg].count);
+			if (score_changed) {
+				update_scores();
+			}
 		}
 
 		if ( vdp_check_key_press( KEY_backtick ) )  // ' - toggle debug
@@ -260,6 +280,22 @@ void create_sprites()
 
 }
 
+void draw_screen()
+{
+	vdp_set_text_colour(main_colour);
+	TAB(7,0);printf("SCORE");TAB(27,0);printf("HIGH");
+	vdp_set_text_colour(15);
+	TAB(17,1);printf("PAINTER");
+
+	vdp_set_text_colour(main_colour);
+	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BOBUS");
+}
+void update_scores()
+{
+	vdp_set_text_colour(15);
+	TAB(9,2);printf("%d  ",score);TAB(29,2);printf("%d  ",highscore);
+	TAB(9,29);printf("%d",frame);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",bonus);
+}
 void draw_map()
 {
 	vdp_gcol(0, 8);
@@ -314,6 +350,7 @@ void set_point( Position *ppos )
 	vdp_hide_sprite();
 	col = readPixelColour( sys_vars, ppos->x, ppos->y );
 	vdp_show_sprite();
+	//TAB(0,0);printf("%06x",col);
 	if ( col == 0x555555 && paths[curr_path_seg].count>0 )
 	{
 		// reduce count in this line segment
@@ -531,6 +568,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 
 void check_shape_complete()
 {
+	bool all_complete = true;
 	for (int s=0; s < num_shapes; s++)
 	{
 		bool shape_complete = shapes[s].complete;
@@ -547,13 +585,22 @@ void check_shape_complete()
 			}
 			if (incomplete==0) {
 				 shapes[s].complete = true;
-				 fill_shape( s );
+				 fill_shape( s, false );
+				 score += shapes[s].value;
+			}
+			else
+			{
+				all_complete = false;
 			}
 		}
 	}
+	if (all_complete)
+	{
+		flash_screen(10, 25);
+	}
 }
 
-void fill_shape( int s )
+void fill_shape( int s, bool fast )
 {
 	vdp_gcol(0, shapes[s].colour);
 	int x1 = shapes[s].TopLeft.x;
@@ -561,19 +608,42 @@ void fill_shape( int s )
 	int x2 = shapes[s].BotRight.x;
 	int y2 = shapes[s].BotRight.y;
 	// fast fill:
-	//vdp_move_to( shapes[s].TopLeft.x+1, shapes[s].TopLeft.y+1 );
-	//vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
-	// slow fill
-	for (int x=x1+1; x<x2; x++)
+	if (fast)
 	{
-		vdp_move_to( x, y1+1 );
-		vdp_line_to( x, y2-1 );
-		clock_t ticks=clock()+1;
-		while (ticks > clock()) {
-			vdp_update_key_state();
-		};
+		vdp_move_to( shapes[s].TopLeft.x+1, shapes[s].TopLeft.y+1 );
+		vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
+	} else {
+		// slow fill
+		int slice_width = MAX(1, (x2-x1)/50);
+		for (int x=x1+1; x<x2; x+=slice_width)
+		{
+			vdp_move_to( x, y1+1 );
+			vdp_filled_rect( MIN(x+slice_width, x2-2), y2-1 );
+			clock_t ticks=clock()+1;
+			while (ticks > clock()) {
+				vdp_update_key_state();
+			};
+		}
 	}
-	
 }
 
+void flash_screen(int repeat, int speed)
+{
+	clock_t ticks;
+
+	bool flash_on = true;
+	for (int rep=0; rep<repeat; rep++)
+	{
+		//vdp_define_colour( 0, flash_on?15:0, 255, 0, 255 );
+		int col = flash_on?63:0;
+		putch(19);putch(0);putch(col);putch(0);putch(0);putch(0);
+		ticks = clock()+speed;
+		while (ticks > clock())
+		{
+			vdp_update_key_state();
+		}
+		flash_on = !flash_on;
+	}
+	putch(19);putch(0);putch(0);putch(0);putch(0);putch(0);
+}
 
