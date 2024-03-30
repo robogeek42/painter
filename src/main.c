@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
 
 	pos.x = (gScreenWidth/2) & 0xFFFFF8;
 	pos.y = (gScreenHeight/2) & 0xFFFFF8;
-	vdp_move_sprite_to(pos.x, pos.y);
+	//vdp_move_sprite_to(pos.x, pos.y);
 
 	game_loop();
 
@@ -268,7 +268,7 @@ void load_images()
 	char fname[40];
 	for (int fn=1; fn<=4; fn++)
 	{
-		sprintf(fname, "img/brush%02d.rgb2", fn);
+		sprintf(fname, "img/b4%02d.rgb2", fn);
 		load_bitmap_file(fname, 8, 8, 0 + fn-1);
 	}
 }
@@ -293,7 +293,7 @@ void draw_screen()
 	TAB(17,1);printf("PAINTER");
 
 	vdp_set_text_colour(main_colour);
-	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BOBUS");
+	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BONUS");
 }
 void update_scores()
 {
@@ -353,16 +353,14 @@ void set_point( Position *ppos )
 {
 	uint24_t col = 0;
 
-	// Hide sprite while we read the pixel colour under it
-	vdp_hide_sprite();
+	// Sprite has black transparent and a hole in the middle to 
+	// read pixels under
+
+	vdp_move_sprite_to(pos.x-4, pos.y-4);
 	vdp_refresh_sprites();
 
 	col = readPixelColour( sys_vars, ppos->x, ppos->y );
 	//TAB(0,0);printf("%06x",col);
-
-	// re-display the sprite
-	vdp_show_sprite();
-	vdp_refresh_sprites();
 
 	// If we read dark grey (colour 8) then it is a bit of the line 
 	// we haven't visted yet
@@ -577,6 +575,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 		}
 	}
 	vdp_move_sprite_to(pos.x-4, pos.y-4);
+	vdp_refresh_sprites();
 }
 
 void check_shape_complete()
