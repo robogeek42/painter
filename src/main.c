@@ -268,7 +268,7 @@ void load_images()
 	char fname[40];
 	for (int fn=1; fn<=4; fn++)
 	{
-		sprintf(fname, "img/b4%02d.rgb2", fn);
+		sprintf(fname, "img/b5%02d.rgb2", fn);
 		load_bitmap_file(fname, 8, 8, 0 + fn-1);
 	}
 }
