@@ -142,9 +142,9 @@ void wait();
 void game_loop();
 void load_images();
 void create_sprites();
-void draw_player();
 void draw_map();
 void draw_map_debug();
+void set_point( Position *ppos );
 void draw_screen();
 void update_scores();
 void draw_path_segment( PathSegment *pps );
@@ -161,16 +161,20 @@ void wait()
 
 static volatile SYSVAR *sys_vars = NULL;
 
-int main(/*int argc, char *argv[]*/)
+int main(int argc, char *argv[])
 {
 	sys_vars = vdp_vdu_init();
 	if ( vdp_key_init() == -1 ) return 1;
 	vdp_set_key_event_handler( key_event_handler );
 
+	if (argc > 1)
+	{
+		key_wait=atoi(argv[1]);
+	}
 	// setup complete
 	vdp_mode(gMode);
 	vdp_logical_scr_dims(false);
-	//vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong
+	vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong on emulator
 	//vdu_set_graphics_viewport()
 
 	load_images();
@@ -205,7 +209,8 @@ void game_loop()
 
 	pos.x = paths[curr_path_seg].A.x;
 	pos.y = paths[curr_path_seg].A.y;
-	draw_player();
+	vdp_move_sprite_to(pos.x-4, pos.y-4);
+	set_point( &pos );
 
 	do {
 		uint8_t dir=0;
@@ -223,7 +228,6 @@ void game_loop()
 
 			move_along_path_segment(&paths[curr_path_seg], dir);
 
-			draw_player();
 			//TAB(0,0);printf("%d,%d seg:%d cnt:%d", pos.x, pos.y, curr_path_seg, paths[curr_path_seg].count);
 			if (score_changed) {
 				update_scores();
@@ -251,6 +255,7 @@ void game_loop()
 			anim_ticks = clock() + anim_speed;
 			player_frame=(player_frame+1)%4; 
 			vdp_nth_sprite_frame( player_frame );
+			vdp_refresh_sprites();
 		}
 
 		vdp_update_key_state();
@@ -347,10 +352,20 @@ void draw_map_debug()
 void set_point( Position *ppos )
 {
 	uint24_t col = 0;
+
+	// Hide sprite while we read the pixel colour under it
 	vdp_hide_sprite();
+	vdp_refresh_sprites();
+
 	col = readPixelColour( sys_vars, ppos->x, ppos->y );
-	vdp_show_sprite();
 	//TAB(0,0);printf("%06x",col);
+
+	// re-display the sprite
+	vdp_show_sprite();
+	vdp_refresh_sprites();
+
+	// If we read dark grey (colour 8) then it is a bit of the line 
+	// we haven't visted yet
 	if ( col == 0x555555 && paths[curr_path_seg].count>0 )
 	{
 		// reduce count in this line segment
@@ -387,14 +402,10 @@ void set_point( Position *ppos )
 			}
 		}
 	}
+	// paint the point with the new colour
 	vdp_gcol(0,15);
 	vdp_point( ppos->x, ppos->y );
-}
 
-void draw_player()
-{
-	vdp_move_sprite_to(pos.x-4, pos.y-4);
-	set_point( &pos );
 }
 
 void draw_path_segment( PathSegment *pps )
@@ -411,7 +422,6 @@ bool is_near( int a, int b, int plusminus )
 void move_along_path_segment( PathSegment *pps, uint8_t dir)
 {
 	int prox = 3;
-	set_point( &pos );
 
 	if ( pps->horiz ) // Currently on a Horizontal path
 	{
@@ -505,6 +515,8 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 		if ( (dir & BITS_UP) && (pos.y > less->y) ) pos.y -= 1;
 		if ( (dir & BITS_DOWN) && (pos.y < more->y) ) pos.y += 1;
 
+		set_point( &pos );
+
 		for (int i=0; i<3; i++)
 		{
 			// front of line (point A)
@@ -564,6 +576,7 @@ void move_along_path_segment( PathSegment *pps, uint8_t dir)
 			}
 		}
 	}
+	vdp_move_sprite_to(pos.x-4, pos.y-4);
 }
 
 void check_shape_complete()
