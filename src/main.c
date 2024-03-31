@@ -35,7 +35,7 @@ int gScreenHeight = 240;
 // Configuration vars
 int key_wait = 1;
 int anim_speed = 10;
-int enemy_speed = 10;
+int enemy_speed = 1;
 //------------------------------------------------------------
 
 
@@ -49,7 +49,7 @@ Position pos = {0,0};
 
 // Position of enemies
 #define MAX_NUM_ENEMIES 3
-Position enemy[MAX_NUM_ENEMIES] = {};
+Position enemy_pos[MAX_NUM_ENEMIES] = {};
 int num_enemies = 1;
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
@@ -63,8 +63,10 @@ typedef struct {
 	Position A;
 	Position B;
 	bool horiz;
-	ValidNext nextA[3]; // thre other possible directions to move in from A
-	ValidNext nextB[3]; // thre other possible directions to move in from B
+	ValidNext nextA[3]; // the other possible directions to move in from A
+	int num_validA;
+	ValidNext nextB[3]; // the other possible directions to move in from B
+	int num_validB;
 	int count;
 } PathSegment;
 
@@ -117,7 +119,7 @@ void set_point( Position *ppos );
 void draw_screen();
 void update_scores();
 void draw_path_segment( PathSegment *pps );
-void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, bool draw);
+void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, uint8_t dir, bool draw, int prox);
 void check_shape_complete();
 void fill_shape( int s, bool fast );
 void flash_screen(int repeat, int speed);
@@ -141,6 +143,9 @@ int main(int argc, char *argv[])
 	{
 		key_wait=atoi(argv[1]);
 	}
+	int seed = 1234;
+	srand(seed);
+
 	// setup complete
 	vdp_mode(gMode);
 	vdp_logical_scr_dims(false);
@@ -181,12 +186,12 @@ void game_loop()
 	set_point( &pos );
 
 	enemy_curr_segment[0] = 3;
-	enemy[0].x = paths[enemy_curr_segment[0]].A.x;
-	enemy[0].y = paths[enemy_curr_segment[0]].A.y;
+	enemy_pos[0].x = paths[enemy_curr_segment[0]].A.x;
+	enemy_pos[0].y = paths[enemy_curr_segment[0]].A.y;
 	enemy_dir[0] = BITS_LEFT;
 	
 	vdp_select_sprite(1);
-	vdp_move_sprite_to(enemy[0].x-4, enemy[0].y-4);
+	vdp_move_sprite_to(enemy_pos[0].x-4, enemy_pos[0].y-4);
 
 	vdp_refresh_sprites();
 
@@ -206,7 +211,7 @@ void game_loop()
 		{
 			key_wait_ticks = clock() + key_wait;
 
-			move_along_path_segment(&paths[curr_path_seg], &pos, dir, true);
+			move_along_path_segment(&paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
 			vdp_select_sprite(0);
 			vdp_move_sprite_to(pos.x-4, pos.y-4);
 			vdp_refresh_sprites();
@@ -443,13 +448,19 @@ void draw_path_segment( PathSegment *pps ) {
 
 bool is_near( int a, int b, int plusminus )
 {
+	if (!plusminus) return a==b;
 	if ( a >= (b - plusminus) && a <= (b + plusminus) ) return true;
 	return false;
 }
-void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, bool draw)
-{
-	int prox = 3;
 
+bool is_at_position(Position *pposA, Position *pposB)
+{
+	if ( pposA->x == pposB->x && pposA->y == pposB->y ) return true;
+	return false;
+}
+
+void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, uint8_t dir, bool draw, int prox)
+{
 	if ( pps->horiz ) // Currently on a Horizontal path
 	{
 		Position *less, *more;
@@ -479,7 +490,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 				{
 					if ( ppos->x == pps->A.x )
 					{
-						curr_path_seg = pps->nextA[i].seg;
+						(*curr_seg) = pps->nextA[i].seg;
 						if (draw) set_point( ppos );
 					} 
 				}
@@ -493,9 +504,9 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 							if (draw) set_point( ppos );
 						}
 						// Move to the next segment
-						curr_path_seg = pps->nextA[i].seg;
+						(*curr_seg) = pps->nextA[i].seg;
 						// we may have jumped down so make sure we are on the line
-						ppos->x = paths[curr_path_seg].A.x; // A or B doesn't matter
+						ppos->x = paths[(*curr_seg)].A.x; // A or B doesn't matter
 					}
 				}
 			}
@@ -507,7 +518,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 				{
 					if ( ppos->x == pps->B.x )
 					{
-						curr_path_seg = pps->nextB[i].seg;
+						(*curr_seg) = pps->nextB[i].seg;
 						if (draw) set_point( ppos );
 					} 
 				}
@@ -522,9 +533,9 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 							if (draw) set_point( ppos );
 						}
 						// Move to the next segment
-						curr_path_seg = pps->nextB[i].seg;
+						(*curr_seg) = pps->nextB[i].seg;
 						// we may have jumped down so make sure we are on the line
-						ppos->x = paths[curr_path_seg].B.x; // A or B doesn't matter
+						ppos->x = paths[(*curr_seg)].B.x; // A or B doesn't matter
 					}
 				}
 			}
@@ -557,7 +568,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 				{
 					if ( ppos->y == pps->A.y )
 					{
-						curr_path_seg = pps->nextA[i].seg;
+						(*curr_seg) = pps->nextA[i].seg;
 						if (draw) set_point( ppos );
 					} 
 				}
@@ -571,9 +582,9 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 							if (draw) set_point( ppos );
 						}
 						// Move to the next segment
-						curr_path_seg = pps->nextA[i].seg;
+						(*curr_seg) = pps->nextA[i].seg;
 						// we may have jumped down so make sure we are on the line
-						ppos->y = paths[curr_path_seg].A.y; // A or B doesn't matter
+						ppos->y = paths[(*curr_seg)].A.y; // A or B doesn't matter
 					}
 				}
 			}
@@ -585,7 +596,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 				{
 					if ( ppos->y == pps->B.y )
 					{
-						curr_path_seg = pps->nextB[i].seg;
+						(*curr_seg) = pps->nextB[i].seg;
 						if (draw) set_point( ppos );
 					} 
 				}
@@ -600,9 +611,9 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir, boo
 							if (draw) set_point( ppos );
 						}
 						// Move to the next segment
-						curr_path_seg = pps->nextB[i].seg;
+						(*curr_seg) = pps->nextB[i].seg;
 						// we may have jumped down so make sure we are on the line
-						ppos->y = paths[curr_path_seg].B.y; // A or B doesn't matter
+						ppos->y = paths[(*curr_seg)].B.y; // A or B doesn't matter
 					}
 				}
 			}
@@ -691,13 +702,57 @@ void flash_screen(int repeat, int speed)
 	putch(19);putch(0);putch(0);putch(0);putch(0);putch(0);
 }
 
+#define DIR_OPP(d) ((d+2)%4)
+
+int direction_choice( int seg, bool at_A )
+{
+	int dir = 0;
+	if ( paths[seg].horiz )
+	{
+		if ( paths[seg].A.x > paths[seg].B.x )
+		{
+			if (at_A) dir = BITS_LEFT; else dir = BITS_RIGHT;
+		} else {
+			if (at_A) dir = BITS_RIGHT; else dir = BITS_LEFT;
+		}
+	}
+	else
+	{
+		if ( paths[seg].A.y > paths[seg].B.y )
+		{
+			if (at_A) dir = BITS_UP; else dir = BITS_DOWN;
+		} else {
+			if (at_A) dir = BITS_DOWN; else dir = BITS_UP;
+		}
+	}
+	return dir;
+}
+
 void move_enemies()
 {
 	for (int en=0; en<num_enemies; en++)
 	{
-		move_along_path_segment(&paths[enemy_curr_segment[en]], &enemy[en], enemy_dir[en], false);
+		int old_seg = enemy_curr_segment[en];
+		int old_dir = enemy_dir[en];
+		move_along_path_segment(&paths[enemy_curr_segment[en]], &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
+		// choose a new segment
+		if ( is_at_position( &enemy_pos[en], &paths[enemy_curr_segment[en]].A ) )
+		{
+			int rand_seg_num = ( rand() % paths[enemy_curr_segment[en]].num_validA );
+			enemy_curr_segment[en] = paths[enemy_curr_segment[en]].nextA[rand_seg_num].seg;
+			enemy_dir[en] = paths[enemy_curr_segment[en]].nextA[rand_seg_num].key;
+			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
+		}
+		if ( is_at_position( &enemy_pos[en], &paths[enemy_curr_segment[en]].B ) )
+		{
+			int rand_seg_num = ( rand() % paths[enemy_curr_segment[en]].num_validB );
+			enemy_dir[en] = paths[enemy_curr_segment[en]].nextB[rand_seg_num].key;
+			enemy_curr_segment[en] = paths[enemy_curr_segment[en]].nextB[rand_seg_num].seg;
+			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
+		}
+		//TAB(0,2);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
 		vdp_select_sprite(en+1);
-		vdp_move_sprite_to(enemy[en].x-4, enemy[en].y-4);
+		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
 		vdp_refresh_sprites();
 	}
 }
@@ -709,52 +764,53 @@ bool load_map()
 	paths[0] = (PathSegment)
 		// A          B         horiz     
 		/* 0 */ { {100,100}, {200,100}, true,  
-			{ { BD, 4 }, {}, {} }, 
-			{ { BD, 1 }, { BR, 5 }, {} },
+			{ { BD, 4 }, {}, {} }, 1,
+			{ { BD, 1 }, { BR, 5 }, {} }, 2,
 			100
 		};
 	paths[1] = (PathSegment)
 		/* 1 */ { {200,100}, {200,150}, false, 
-			{ { BL, 0 }, { BR, 5 }, {} },
-			{ { BR, 7 }, { BD, 2 }, {} },
+			{ { BL, 0 }, { BR, 5 }, {} }, 2,
+			{ { BR, 7 }, { BD, 2 }, {} }, 2,
 			50
 		};
 	paths[2] = (PathSegment)
 		/* 2 */ { {200,150}, {200,200}, false, 
-			{ { BU, 1 }, { BR, 7 }, {} },
-			{ { BL, 3 }, {}, {} },
+			{ { BU, 1 }, { BR, 7 }, {} }, 2,
+			{ { BL, 3 }, {}, {} }, 1,
 			50
 		};
 	paths[3] = (PathSegment)
 		/* 3 */ { {200,200}, {100,200}, true,  
-			{ { BU, 2 }, {}, {} },
-			{ { BU, 4 }, {}, {} },
+			{ { BU, 2 }, {}, {} }, 1,
+			{ { BU, 4 }, {}, {} }, 1,
 			100
 		};
 	paths[4] = (PathSegment)
 		/* 4 */ { {100,200}, {100,100}, false, 
-			{ { BR, 3 }, {}, {} },
-			{ { BR, 0 }, {}, {} },
+			{ { BR, 3 }, {}, {} }, 1,
+			{ { BR, 0 }, {}, {} }, 1,
 			100
 		};
 	paths[5] = (PathSegment)
 		/* 5 */ { {200,100}, {250,100}, true, 
-			{ { BD, 1 }, { BL, 0 }, {} },
-			{ { BD, 6 }, {}, {} },
+			{ { BD, 1 }, { BL, 0 }, {} }, 2,
+			{ { BD, 6 }, {}, {} }, 1,
 			50
 		};
 	paths[6] = (PathSegment)
 		/* 6 */ { {250,100}, {250,150}, false, 
-			{ { BL, 5 }, {}, {} },
-			{ { BL, 7 }, {}, {} },
+			{ { BL, 5 }, {}, {} }, 1,
+			{ { BL, 7 }, {}, {} }, 1,
 			50
 		};
 	paths[7] = (PathSegment)
 		/* 7 */ { {250,150}, {200,150}, true, 
-			{ { BU, 6 }, {}, {} },
-			{ { BU, 1 }, { BD, 2 }, {} },
+			{ { BU, 6 }, {}, {} }, 1,
+			{ { BU, 1 }, { BD, 2 }, {} }, 2,
 			50
 		};
 
 	return true;
 }
+
