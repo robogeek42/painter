@@ -105,8 +105,11 @@ int highscore = 0;
 int frame = 1;
 int skill = 1;
 int bonus = 2600;
+int volume = 3; // 0-10
 
 int main_colour = 9;
+
+Position last_play_beep_pos;
 
 void wait();
 void game_loop();
@@ -119,11 +122,15 @@ void set_point( Position *ppos );
 void draw_screen();
 void update_scores();
 void draw_path_segment( PathSegment *pps );
+bool is_at_position(Position *pposA, Position *pposB);
+void copy_position(Position *pFrom, Position *pTo);
 void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, uint8_t dir, bool draw, int prox);
 void check_shape_complete();
 void fill_shape( int s, bool fast );
 void flash_screen(int repeat, int speed);
 void move_enemies();
+void play_beep();
+void play_wah_wah();
 
 void wait()
 {
@@ -156,6 +163,8 @@ int main(int argc, char *argv[])
 	create_sprites();
 
 	load_map();
+	vdp_audio_reset_channel( 0 );
+	vdp_audio_reset_channel( 1 );
 
 	game_loop();
 
@@ -182,6 +191,7 @@ void game_loop()
 	pos.x = paths[curr_path_seg].A.x;
 	pos.y = paths[curr_path_seg].A.y;
 	set_point( &pos );
+	copy_position(&pos, &last_play_beep_pos);
 
 	enemy_curr_segment[0] = 3;
 	enemy_pos[0].x = paths[enemy_curr_segment[0]].A.x;
@@ -193,7 +203,16 @@ void game_loop()
 
 	vdp_refresh_sprites();
 
-	//flash_screen(3,25);
+	// wah-wah plays on channel 2
+	play_wah_wah();
+	flash_screen(10,30);
+	vdp_audio_frequency_envelope_disable( 2 );
+	vdp_audio_disable_channel( 2 );
+
+	// beep on channel 0
+	vdp_audio_reset_channel( 0 );
+	vdp_audio_set_waveform( 0, VDP_AUDIO_WAVEFORM_SINEWAVE);
+	play_beep();
 
 	do {
 		uint8_t dir=0;
@@ -213,6 +232,16 @@ void game_loop()
 			vdp_select_sprite(0);
 			vdp_move_sprite_to(pos.x-4, pos.y-4);
 			vdp_refresh_sprites();
+			if ( is_at_position( &pos, &paths[ curr_path_seg ].A ) ||
+			     is_at_position( &pos, &paths[ curr_path_seg ].B ) )
+			{
+				if (! is_at_position(&pos, &last_play_beep_pos)) 
+				{
+					play_beep();
+					copy_position(&pos, &last_play_beep_pos);
+				}
+			}
+
 
 			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, paths[curr_path_seg].count);
 			if (score_changed) {
@@ -391,6 +420,12 @@ bool is_at_position(Position *pposA, Position *pposB)
 {
 	if ( pposA->x == pposB->x && pposA->y == pposB->y ) return true;
 	return false;
+}
+
+void copy_position(Position *pFrom, Position *pTo)
+{
+	pTo->x = pFrom->x;
+	pTo->y = pFrom->y;
 }
 
 void set_point( Position *ppos )
@@ -660,11 +695,16 @@ void fill_shape( int s, bool fast )
 		vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
 	} else {
 		// slow fill
+		vdp_audio_reset_channel( 1 );
+		vdp_audio_set_waveform( 1, VDP_AUDIO_WAVEFORM_VICNOISE);
 		int slice_width = MAX(1, (x2-x1)/50);
 		for (int x=x1+1; x<x2; x+=slice_width)
 		{
 			vdp_move_to( x, y1+1 );
 			vdp_filled_rect( MIN(x+slice_width, x2-2), y2-1 );
+
+			// fill noise on channel 1
+			vdp_audio_play_note( 1, 10*volume, 10+(x-x1)/3, 20);
 			clock_t ticks=clock()+1;
 			while (ticks > clock()) {
 				vdp_update_key_state();
@@ -681,8 +721,8 @@ void flash_screen(int repeat, int speed)
 	for (int rep=0; rep<repeat; rep++)
 	{
 		//vdp_define_colour( 0, flash_on?15:0, 255, 0, 255 );
-		int col = flash_on?63:0;
-		putch(19);putch(0);putch(col);putch(0);putch(0);putch(0);
+		int col = flash_on? 0b00101010 :0;
+		vdp_define_colour( 0, col, 0, 0, 0 );
 		ticks = clock()+speed;
 		while (ticks > clock())
 		{
@@ -690,7 +730,7 @@ void flash_screen(int repeat, int speed)
 		}
 		flash_on = !flash_on;
 	}
-	putch(19);putch(0);putch(0);putch(0);putch(0);putch(0);
+	vdp_define_colour( 0, 0, 0, 0, 0 );
 }
 
 #define DIR_OPP(d) ((d+2)%4)
@@ -805,3 +845,37 @@ bool load_map()
 	return true;
 }
 
+void play_beep()
+{
+	vdp_audio_play_note( 0, 20*volume, 2217, 40);
+}
+
+void play_wah_wah()
+{
+	vdp_audio_reset_channel( 2 );
+	vdp_audio_set_waveform( 2,VDP_AUDIO_WAVEFORM_SQUARE );
+
+	vdp_audio_frequency_envelope_stepped( 
+			2,  // channel
+			2,  // number of steps
+			VDP_AUDIO_FREQ_ENVELOPE_CONTROL_REPEATS,
+			10  // step length
+	);
+	uint16_t words[4] = {
+		2,   // phase 1: freq adjustment
+		18,  // phase 1: in x steps
+		-2,  // phase 2: freq adjustment
+		18   // phase 2: in x steps
+	};
+	mos_puts( (char *)words, sizeof(words), 0 );
+
+	vdp_audio_play_note( 2, // channel
+		   				10*volume, // volume
+						73, // freq
+						2600 // duration
+						);
+}
+void stop_wah_wah()
+{
+	vdp_audio_reset_channel( 2 );
+}
