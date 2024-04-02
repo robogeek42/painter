@@ -59,10 +59,11 @@ typedef struct {
 	int num_validB;
 } PathSegment;
 
+#define MAX_SHAPE_SEGS 30
 typedef struct {
 	int num_segments;
-	int segments[10];
-	bool seg_complete[10];
+	int segments[MAX_SHAPE_SEGS];
+	bool seg_complete[MAX_SHAPE_SEGS];
 	bool complete;
 	int value;
 	int colour;
@@ -202,6 +203,38 @@ bool input_path_segment_vert(PathSegment *pps)
 
 	return true;
 }
+
+bool enter_path_segment( int seg )
+{
+	bool changed = false;
+	PathSegment ps;
+	clear_line(1);
+	char horv = input_char(0,1,"Horiz or Vert");
+	bool ok = false;
+	if ( horv == 'h' || horv == 'H' )
+	{
+		ok = input_path_segment_horiz( &ps );
+	}
+	else if ( horv == 'v' || horv == 'V' )
+	{
+		ok = input_path_segment_vert( &ps );
+	} 
+	if ( ok && level )
+	{
+		level->paths[seg].A.x = ps.A.x;
+		level->paths[seg].A.y = ps.A.y;
+		level->paths[seg].B.x = ps.B.x;
+		level->paths[seg].B.y = ps.B.y;
+		level->paths[seg].horiz = ps.horiz;
+		COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d)",seg,
+				ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+		changed=true;
+	} else {
+		COL(7);TAB(0,1);printf("Failed seg: (%d,%d)->(%d,%d)",
+				ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+	}
+	return changed;
+}
 void game_loop()
 {
 	int exit=0;
@@ -228,33 +261,10 @@ void game_loop()
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
-			
-				PathSegment ps;
-				clear_line(1);
-				char horv = input_char(0,1,"Horiz or Vert");
-				bool ok = false;
-				if ( horv == 'h' || horv == 'H' )
+				if ( enter_path_segment( level->num_path_segments ) )
 				{
-					ok = input_path_segment_horiz( &ps );
-				}
-				else if ( horv == 'v' || horv == 'V' )
-				{
-					ok = input_path_segment_vert( &ps );
-				} 
-				if ( ok && level )
-				{
-					level->paths[level->num_path_segments].A.x = ps.A.x;
-					level->paths[level->num_path_segments].A.y = ps.A.y;
-					level->paths[level->num_path_segments].B.x = ps.B.x;
-					level->paths[level->num_path_segments].B.y = ps.B.y;
-					level->paths[level->num_path_segments].horiz = ps.horiz;
-					COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d)",level->num_path_segments,
-							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
 					level->num_path_segments++;
 					changed=true;
-				} else {
-					COL(7);TAB(0,1);printf("Failed seg: (%d,%d)->(%d,%d)",
-							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
 				}
 			}
 		}
@@ -336,6 +346,104 @@ void game_loop()
 					level->num_path_segments--;
 				}
 				changed=true;
+			}
+		}
+		if ( vdp_check_key_press( KEY_e ) )  // Edit a path segment
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+
+				clear_line(1);
+				TAB(0,1);
+				int seg = input_int(0,1,"Enter seg to edit:");
+				if ( enter_path_segment( seg ) )
+				{
+					changed=true;
+				}
+			}
+		}
+		if ( vdp_check_key_press( KEY_s ) )  // Enter a shape
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				bool ok = true;
+				key_wait_ticks = clock() + key_wait;
+				int segs[MAX_SHAPE_SEGS];
+				int num_segs = 0;
+				for (int s=0;s<MAX_SHAPE_SEGS;s++)
+				{
+					clear_line(1);
+					TAB(0,1);printf("Shape: seg %d (-1 = stop) ",s);
+					segs[s] = input_int(27,1,"?");
+					if (segs[s] < 0 ) break;
+					if (segs[s] >= level->num_path_segments )
+					{ 
+						ok = false;
+						break;
+					}
+					vdp_gcol(0,5);
+					draw_path_segment( &level->paths[segs[s]] );
+					num_segs++;
+				}
+				if (num_segs < 4) {
+					clear_line(1);
+					TAB(0,1);printf("Too few segments %d\n",num_segs);
+			   		ok = false;
+				}
+				if ( ok )
+				{
+					// check they are all different
+					for (int s=0;s<MAX_SHAPE_SEGS-1;s++)
+					{
+						for (int c=1;c<MAX_SHAPE_SEGS;c++)
+						{
+							if (segs[s]==segs[c]) 
+							{
+								clear_line(1);
+								TAB(0,1);printf("segs same %d %d\n",s,c);
+								ok = false;
+								break;
+							}
+						}
+					}
+				}
+				if ( ok )
+				{
+					// copy the segements into the shape in the level
+					for (int s=0;s<num_segs;s++)
+					{
+						level->shapes[level->num_shapes].segments[s] = segs[s];
+					}
+					clear_line(1);
+					level->shapes[level->num_shapes].value = input_int(0,1,"Score:");
+					level->shapes[level->num_shapes].colour = input_int(0,1,"Colour:");
+					
+					// get TopLeft and BottomRight
+					Position pos_tl, pos_br;
+					pos_tl.x = 1000; pos_tl.y = 1000;
+					pos_br.x = 0; pos_br.y = 0;
+					for (int s=0;s<num_segs;s++)
+					{
+						if ( level->paths[segs[s]].A.x < pos_tl.x ) pos_tl.x = level->paths[segs[s]].A.x;
+						if ( level->paths[segs[s]].B.x < pos_tl.x ) pos_tl.x = level->paths[segs[s]].B.x;
+						if ( level->paths[segs[s]].A.y < pos_tl.y ) pos_tl.y = level->paths[segs[s]].A.y;
+						if ( level->paths[segs[s]].B.y < pos_tl.y ) pos_tl.y = level->paths[segs[s]].B.y;
+
+						if ( level->paths[segs[s]].A.x > pos_br.x ) pos_br.x = level->paths[segs[s]].A.x;
+						if ( level->paths[segs[s]].B.x > pos_br.x ) pos_br.x = level->paths[segs[s]].B.x;
+						if ( level->paths[segs[s]].A.y > pos_br.y ) pos_br.y = level->paths[segs[s]].A.y;
+						if ( level->paths[segs[s]].B.y > pos_br.y ) pos_br.y = level->paths[segs[s]].B.y;
+					}
+					level->shapes[level->num_shapes].TopLeft.x = pos_tl.x;
+					level->shapes[level->num_shapes].TopLeft.y = pos_tl.y;
+					level->shapes[level->num_shapes].BotRight.x = pos_br.x;
+					level->shapes[level->num_shapes].BotRight.y = pos_br.y;
+
+					level->shapes[level->num_shapes].num_segments = num_segs;
+
+					level->num_shapes++;
+				}
 			}
 		}
 
