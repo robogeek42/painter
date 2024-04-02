@@ -159,12 +159,12 @@ void clear_line(int y)
 
 int input_int(int x, int y, char *msg)
 {
-	char buf[30];
+	int num;
 	TAB(x,y);
 	printf("%s:",msg);
-	scanf("%[^\n]s",buf);
+	scanf("%d",&num);
 	clear_line(y);
-	return atoi(buf);
+	return num;
 }
 char input_char(int x, int y, char *msg)
 {
@@ -174,6 +174,33 @@ char input_char(int x, int y, char *msg)
 	scanf("%[^\n]s",buf);
 	clear_line(y);
 	return buf[0];
+}
+
+bool input_path_segment_horiz(PathSegment *pps)
+{
+	pps->A.y = input_int(0,1,"Enter Y");
+	pps->B.y = pps->A.y;
+	
+	pps->A.x = input_int(0,1,"Enter A.x");
+	pps->B.x = input_int(0,1,"Enter B.x");
+	pps->horiz = true;
+	if ( pps->A.x == pps->B.x ) return false;
+	if ( pps->A.x >= 320 || pps->B.x >= 320) return false;
+
+	return true;
+}
+bool input_path_segment_vert(PathSegment *pps)
+{
+	pps->A.x = input_int(0,1,"Enter X");
+	pps->B.x = pps->A.x;
+	
+	pps->A.y = input_int(0,1,"Enter A.y");
+	pps->B.y = input_int(0,1,"Enter B.y");
+	pps->horiz = false;
+	if ( pps->A.y == pps->B.y ) return false;
+	if ( pps->A.y >= 240 || pps->B.y >= 240) return false;
+
+	return true;
 }
 void game_loop()
 {
@@ -186,6 +213,10 @@ void game_loop()
 	do {
 		if (changed)
 		{
+			vdp_move_to(4,20);
+			vdp_gcol(0,0);
+			vdp_filled_rect(319,223);
+
 			draw_screen();
 			draw_rulers();
 			draw_level();
@@ -197,69 +228,126 @@ void game_loop()
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
-			}
 			
-			Position A, B;
-			bool horiz;
-			char horv = input_char(0,1,"Horiz or Vert");
-			bool ok = false;
-			if ( horv == 'h' || horv == 'H' )
-			{
-				A.y = input_int(0,1,"Enter Y");
-				B.y = A.y;
-				
-				A.x = input_int(0,1,"Enter A.x");
-				B.x = input_int(0,1,"Enter B.x");
-				horiz = true;
-				if ( A.x != B.x && A.x < 320 && B.x < 320 )
+				PathSegment ps;
+				clear_line(1);
+				char horv = input_char(0,1,"Horiz or Vert");
+				bool ok = false;
+				if ( horv == 'h' || horv == 'H' )
 				{
-					ok = true;
+					ok = input_path_segment_horiz( &ps );
+				}
+				else if ( horv == 'v' || horv == 'V' )
+				{
+					ok = input_path_segment_vert( &ps );
+				} 
+				if ( ok && level )
+				{
+					level->paths[level->num_path_segments].A.x = ps.A.x;
+					level->paths[level->num_path_segments].A.y = ps.A.y;
+					level->paths[level->num_path_segments].B.x = ps.B.x;
+					level->paths[level->num_path_segments].B.y = ps.B.y;
+					level->paths[level->num_path_segments].horiz = ps.horiz;
+					COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d)",level->num_path_segments,
+							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+					level->num_path_segments++;
+					changed=true;
+				} else {
+					COL(7);TAB(0,1);printf("Failed seg: (%d,%d)->(%d,%d)",
+							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
 				}
 			}
-			else if ( horv == 'v' || horv == 'V' )
-			{
-				A.x = input_int(0,1,"Enter X");
-				B.x = A.x;
-				
-				A.y = input_int(0,1,"Enter A.y");
-				B.y = input_int(0,1,"Enter B.y");
-				horiz = false;
-				if ( A.y != B.y && A.y < 240 && B.y < 240 )
-				{
-					ok = true;
-				}
-			} 
-			if ( ok && level )
-			{
-				level->paths[level->num_path_segments].A.x = A.x;
-				level->paths[level->num_path_segments].A.y = A.y;
-				level->paths[level->num_path_segments].B.x = B.x;
-				level->paths[level->num_path_segments].B.y = B.y;
-				level->paths[level->num_path_segments].horiz = horiz;
-				COL(7);TAB(28,1);printf("Added seg:%d",level->num_path_segments);
-				level->num_path_segments++;
-				changed=true;
-			}
-			
 		}
-
-		if ( vdp_check_key_press( KEY_v ) )  // show each path seg in turn
+		if ( vdp_check_key_press( KEY_h ) )
 		{
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
+			
+				PathSegment ps;
+				clear_line(1);
+				bool ok = false;
+				ok = input_path_segment_horiz( &ps );
+				if ( ok && level )
+				{
+					level->paths[level->num_path_segments].A.x = ps.A.x;
+					level->paths[level->num_path_segments].A.y = ps.A.y;
+					level->paths[level->num_path_segments].B.x = ps.B.x;
+					level->paths[level->num_path_segments].B.y = ps.B.y;
+					level->paths[level->num_path_segments].horiz = ps.horiz;
+					COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d)",level->num_path_segments,
+							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+					level->num_path_segments++;
+					changed=true;
+				} else {
+					COL(7);TAB(0,1);printf("Failed seg: (%d,%d)->(%d,%d)",
+							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+				}
+
+			} 
+		}
+		if ( vdp_check_key_press( KEY_v ) )
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+			
+				PathSegment ps;
+				clear_line(1);
+				bool ok = false;
+				ok = input_path_segment_vert( &ps );
+				if ( ok && level )
+				{
+					level->paths[level->num_path_segments].A.x = ps.A.x;
+					level->paths[level->num_path_segments].A.y = ps.A.y;
+					level->paths[level->num_path_segments].B.x = ps.B.x;
+					level->paths[level->num_path_segments].B.y = ps.B.y;
+					level->paths[level->num_path_segments].horiz = ps.horiz;
+					COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d)",level->num_path_segments,
+							ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+					level->num_path_segments++;
+					changed=true;
+				}
+			}
+		}
+
+		if ( vdp_check_key_press( KEY_d ) )  // show each path seg in turn
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				clear_line(1);
+				TAB(0,1); printf("Debug:");
 				draw_level_debug();
+				clear_line(1);
+				changed=true;
+			}
+		}
+
+		if ( vdp_check_key_press( KEY_delete ) )  // delete most recent segment only
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				clear_line(1);
+				TAB(0,1);printf("Del seg %d: Are you sure?",level->num_path_segments-1);
+				char k=getchar(); 
+				if (k=='y' || k=='Y') {
+					level->num_path_segments--;
+				}
+				changed=true;
 			}
 		}
 
 		if ( vdp_check_key_press( KEY_x ) ) // x - exit
 		{
+			clear_line(1);
 			TAB(0,1);printf("Are you sure?");
 			char k=getchar(); 
 			if (k=='y' || k=='Y') exit=1;
 			else 
 			{
-				TAB(0,1);printf("             ");
+				clear_line(1);
 			}
 		}
 
@@ -313,25 +401,62 @@ void draw_screen()
 	TAB(8,0); printf("Edges:%d",level->num_path_segments);
 	TAB(17,0);printf("Shapes:%d",level->num_shapes);
 
-	print_key(0,28,"","D","ebug");
-	print_key(7,28,"","P", "ath");
-	print_key(12,28,"","S","hape");
-	print_key(18,28,"","C","onnect");
+	print_key(0,29,"","D","ebug");
+	print_key(6,29,"","h/v/P", "ath");
+	print_key(16,29,"","S","hape");
+	print_key(22,29,"","C","onnect");
 }
 
 void draw_path_segment( PathSegment *pps ) {
 	vdp_move_to( pps->A.x, pps->A.y );
 	vdp_line_to( pps->B.x, pps->B.y );
 }
+void draw_path_segment_label( PathSegment *pps, int n ) {
+	if (pps->horiz)
+	{
+		int texty;
+		if (pps->A.y<120) //draw below line
+		{
+			texty = pps->A.y+2;
+		} else {
+			texty = pps->A.y-9;
+		}
+		int width = abs(pps->A.x - pps->B.x); 
+		if (pps->A.x>pps->B.x)
+		{
+			vdp_move_to( pps->B.x+(width/2), texty );
+		} else {
+			vdp_move_to( pps->A.x+(width/2), texty );
+		}
+	} else {
+		int textx;
+		if (pps->A.x<160) // text to right of line
+		{
+			textx = pps->A.x+2;
+		} else {
+			textx = pps->A.x-9;
+		}
+		int height = abs(pps->A.y - pps->B.y); 
+		if (pps->A.y>pps->B.y)
+		{
+			vdp_move_to( textx, pps->B.y+(height/2) );
+		} else {
+			vdp_move_to( textx, pps->A.y+(height/2) );
+		}
+	}
+	vdp_gcol(0, 8);
+	printf("%d",n);
+}
 
 void draw_level()
 {
-	vdp_gcol(0, 8);
+	vdp_write_at_graphics_cursor();
 	for (int p = 0; p < level->num_path_segments; p++)
 	{
+		vdp_gcol(0, 7);
 		draw_path_segment( &level->paths[p] );
+		draw_path_segment_label( &level->paths[p], p );
 	}
-	vdp_write_at_graphics_cursor();
 	vdp_gcol(0,15);
 	for ( int s=0; s < level->num_shapes; s++ )
 	{
@@ -346,9 +471,9 @@ void draw_level()
 
 void draw_level_debug()
 {
-	draw_level();
 	for (int p=0; p<level->num_path_segments; p++)
 	{
+		TAB(30,0);printf("seg:%d ",p);
 		vdp_gcol(0,1);
 		draw_path_segment( &level->paths[p] );
 		//TAB(0,1+p);printf("%d: A %d,%d B %d,%d", p, 
@@ -366,9 +491,9 @@ void draw_level_debug()
 				draw_path_segment( &level->paths[level->paths[p].nextB[n].seg] );
 			}
 		}
+		TAB(8,1);printf("Press Any key");
 		wait();
-		vdp_clear_screen();
-		vdp_activate_sprites( 1 ); //  have to reactivate sprites after a clear
+		TAB(8,1);printf("             ");
 		draw_level();
 	}
 }
