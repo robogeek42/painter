@@ -71,17 +71,18 @@ typedef struct {
 	Position BotRight;
 } Shape;
 
+#define SAVE_LEVEL_VERSION 1
 typedef struct {
-	int level_num;
+	uint8_t version;
 	int num_path_segments;
-	PathSegment *paths;
 	int num_shapes;
-	Shape *shapes;
 	int colour_unpainted_line;
 	int colour_painted_line;
 	int colour_fill;
 	int bonus;
-	int num_enemies;
+	uint8_t num_enemies;
+	PathSegment *paths;
+	Shape *shapes;
 } Level;
 
 Level *level;
@@ -104,8 +105,8 @@ bool is_at_position(Position *pposA, Position *pposB);
 void copy_position(Position *pFrom, Position *pTo);
 void fill_shape( int s );
 
-Level* load_level(char *fname, int level_num);
-void save_level(char *name, Level *level);
+Level* load_level(char *fname);
+bool save_level(char *name, Level *level);
 Level* create_blank_level();
 
 void wait()
@@ -175,6 +176,15 @@ char input_char(int x, int y, char *msg)
 	scanf("%[^\n]s",buf);
 	clear_line(y);
 	return buf[0];
+}
+void input_string(int x, int y, char *msg, char *input)
+{
+	char buf[30];
+	TAB(x,y);
+	printf("%s:",msg);
+	scanf("%[^\n]s",buf);
+	clear_line(y);
+	strcpy(input, buf);
 }
 
 bool input_path_segment_horiz(PathSegment *pps)
@@ -447,6 +457,43 @@ void game_loop()
 			}
 		}
 
+		if ( vdp_check_key_press( KEY_f ) ) // file command
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				char filename[32];
+
+				clear_line(1);
+				char lors = input_char(0,1,"Load or Save?");
+				if ( lors == 's' || lors == 'S' )
+				{
+					clear_line(1);
+					input_string(0,1,"Filename:", filename);
+					bool ret = save_level(filename, level);
+					if (!ret) {
+						TAB(25,0);printf("Fail to save");
+					}
+				} 
+				if ( lors == 'l' || lors == 'L' )
+				{
+					clear_line(1);
+					input_string(0,1,"Filename:", filename);
+					free(level);
+					Level *newlevel = load_level(filename);
+					if (level==NULL)
+					{
+						TAB(25,0);printf("Failed to load");
+					}
+					else
+					{
+						level = newlevel;
+					}
+				}
+				clear_line(1);
+			}
+		}
+
 		if ( vdp_check_key_press( KEY_x ) ) // x - exit
 		{
 			clear_line(1);
@@ -513,6 +560,7 @@ void draw_screen()
 	print_key(6,29,"","h/v/P", "ath");
 	print_key(16,29,"","S","hape");
 	print_key(22,29,"","C","onnect");
+	print_key(30,29,"","F","ile");
 }
 
 void draw_path_segment( PathSegment *pps ) {
@@ -638,40 +686,81 @@ void fill_shape( int s )
 
 #define DIR_OPP(d) ((d+2)%4)
 
-Level* load_level(char *fname, int level_num)
+bool save_level(char *fname, Level *level)
 {
-	// Open the file
+	// Open the file for writing
 	FILE *fp;
-	int bytes_read = 0;
-	char buffer[100];
+	int bytes_written = 0;
 
+	if ( !(fp = fopen( fname, "wb" ) ) ) return false;
+
+	bytes_written = fwrite( (const void*) level, sizeof(Level), 1, fp);
+	if (bytes_written==0) return false;
+	
+	bytes_written += fwrite( (const void*) level->num_path_segments, sizeof(int), 1, fp);
+	bytes_written += fwrite( (const void*) level->num_shapes, sizeof(int), 1, fp);
+	if (level->num_path_segments > 0)
+	{
+		bytes_written += fwrite( (const void*) level->paths, sizeof(PathSegment), level->num_path_segments, fp);
+	}
+	if (level->num_shapes > 0)
+	{
+		bytes_written += fwrite( (const void*) level->shapes, sizeof(Shape), level->num_shapes, fp);
+	}
+
+	TAB(0,1);printf("Wrote %d bytes\n",bytes_written);
+	
+	fclose(fp);
+
+	return true;
+}
+
+Level* load_level(char *fname)
+{
+	FILE *fp;
+	
 	if ( !(fp = fopen( fname, "rb" ) ) ) return NULL;
-	bytes_read = fread( buffer, 1, 100, fp );
 
 	Level *newlevel = (Level*) calloc(1, sizeof(Level) );
-	newlevel->level_num = level_num;
-
+	
+	int bytes_read = fread( &level, sizeof(Level), 1, fp );
+	if ( bytes_read != sizeof(Level) || newlevel->version != SAVE_LEVEL_VERSION )
+	{
+		TAB(0,1);printf("Fail %s bytes %d!=%d\n", fname, bytes_read, sizeof(Level));
+		return NULL;
+	}
 	// read the info about the level
 	//  - number of paths
 	//  - number of shapes
 
-	newlevel->paths = (PathSegment*) calloc(newlevel->num_path_segments, sizeof(PathSegment));
-	newlevel->shapes = (Shape*) calloc(newlevel->num_shapes, sizeof(Shape));
+	if (newlevel->num_path_segments > 0)
+	{
+		newlevel->paths = (PathSegment*) calloc(newlevel->num_path_segments, sizeof(PathSegment));
+		bytes_read += fread( &level->paths, sizeof(PathSegment), newlevel->num_path_segments, fp );
+	}
+	if (level->num_shapes > 0)
+	{
+		newlevel->shapes = (Shape*) calloc(newlevel->num_shapes, sizeof(Shape));
+		bytes_read += fread( &level->shapes, sizeof(Shape), newlevel->num_shapes, fp );
+	}
+	printf("Read %d bytes, %d segs %d shapes\n",bytes_read, newlevel->num_path_segments, newlevel->num_shapes);
 
 	return newlevel;
-}
-
-void save_level(char *name, Level *level)
-{
 }
 
 Level *create_blank_level()
 {
 	Level *level = (Level*) calloc(1, sizeof(Level) );
+	level->version = SAVE_LEVEL_VERSION;
 	level->num_path_segments = 0;
 	level->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
 	level->num_shapes = 0;
 	level->shapes = (Shape*) calloc(MAX_SHAPES, sizeof(Shape));
+	level->colour_unpainted_line = 8;
+	level->colour_painted_line = 15;
+	level->colour_fill = 1;
+	level->bonus = 1000;
+	level->num_enemies = 1;
 
 	return level;
 }
