@@ -137,9 +137,6 @@ int main(int argc, char *argv[])
 	vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong on emulator
 	//vdu_set_graphics_viewport()
 
-	vdp_audio_reset_channel( 0 );
-	vdp_audio_reset_channel( 1 );
-
 	level = create_blank_level();
 
 	game_loop();
@@ -177,14 +174,57 @@ char input_char(int x, int y, char *msg)
 	clear_line(y);
 	return buf[0];
 }
-void input_string(int x, int y, char *msg, char *input)
+
+char * getline(void) {
+    char * line = malloc(100), * linep = line;
+    size_t lenmax = 100, len = lenmax;
+    int c;
+
+    if(line == NULL)
+        return NULL;
+
+    for(;;) {
+        c = fgetc(stdin);
+        if(c == EOF)
+            break;
+
+		if(c == 0x7F)
+		{
+			if (line > linep)
+			{
+				line--;
+				continue;
+			}
+		}
+
+        if(--len == 0) {
+            len = lenmax;
+            char * linen = realloc(linep, lenmax *= 2);
+
+            if(linen == NULL) {
+                free(linep);
+                return NULL;
+            }
+            line = linen + (line - linep);
+            linep = linen;
+        }
+
+        if((*line++ = c) == '\n')
+            break;
+    }
+    *line = '\0';
+    return linep;
+}
+void input_string(int x, int y, char *msg, char *input, int max)
 {
-	char buf[30];
+	char *buffer;
+
 	TAB(x,y);
 	printf("%s:",msg);
-	scanf("%[^\n]s",buf);
+	buffer = getline();
+	strcpy(input, buffer);
+	free(buffer);
 	clear_line(y);
-	strcpy(input, buf);
 }
 
 bool input_path_segment_horiz(PathSegment *pps)
@@ -462,14 +502,14 @@ void game_loop()
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
-				char filename[32];
+				char filename[42];
 
 				clear_line(1);
 				char lors = input_char(0,1,"Load or Save?");
 				if ( lors == 's' || lors == 'S' )
 				{
 					clear_line(1);
-					input_string(0,1,"Filename:", filename);
+					input_string(0,1,"Filename:", filename,42);
 					bool ret = save_level(filename, level);
 					if (!ret) {
 						TAB(25,0);printf("Fail to save");
@@ -478,17 +518,16 @@ void game_loop()
 				if ( lors == 'l' || lors == 'L' )
 				{
 					clear_line(1);
-					input_string(0,1,"Filename:", filename);
-					free(level);
+					input_string(0,1,"Filename:", filename,42);
 					Level *newlevel = load_level(filename);
-					if (level==NULL)
+					if (newlevel!=NULL)
 					{
-						TAB(25,0);printf("Failed to load");
-					}
-					else
-					{
+						if (level->paths) free(level->paths);
+						if (level->shapes) free(level->shapes);
+						free(level);
 						level = newlevel;
-					}
+						changed = true;
+					} 
 				}
 				clear_line(1);
 			}
@@ -553,8 +592,9 @@ void draw_screen()
 {
 	vdp_set_text_colour(11);
 	TAB(0,0); printf("EDITOR"); 
-	TAB(8,0); printf("Edges:%d",level->num_path_segments);
-	TAB(17,0);printf("Shapes:%d",level->num_shapes);
+	TAB(8,0); printf("E:%d",level->num_path_segments);
+	TAB(13,0);printf("S:%d",level->num_shapes);
+	TAB(18,0);printf("%d",sizeof(Level));
 
 	print_key(0,29,"","D","ebug");
 	print_key(6,29,"","h/v/P", "ath");
@@ -684,31 +724,106 @@ void fill_shape( int s )
 	vdp_filled_rect( x2 - 1, y2 - 1 );
 }
 
+void print_level_data()
+{
+	int byte = 0;
+	printf("%3d: version %02x\n",byte,level->version); byte += 1;
+	printf("%3d: num seg %02x %02x %02x\n",byte,
+			level->num_path_segments & 0xFF,
+			(level->num_path_segments >> 8) & 0xFF,
+			(level->num_path_segments >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: num sha %02x %02x %02x\n",byte,
+			level->num_shapes & 0xFF,
+			(level->num_shapes >> 8) & 0xFF,
+			(level->num_shapes >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: col unp %02x %02x %02x\n",byte,
+			level->colour_unpainted_line & 0xFF,
+			(level->colour_unpainted_line >> 8) & 0xFF,
+			(level->colour_unpainted_line >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: col pai %02x %02x %02x\n",byte,
+			level->colour_painted_line & 0xFF,
+			(level->colour_painted_line >> 8) & 0xFF,
+			(level->colour_painted_line >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: col fil %02x %02x %02x\n",byte,
+			level->colour_fill & 0xFF,
+			(level->colour_fill >> 8) & 0xFF,
+			(level->colour_fill >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: bonus   %02x %02x %02x\n",byte,
+			level->bonus & 0xFF,
+			(level->bonus >> 8) & 0xFF,
+			(level->bonus >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: num ene %02x\n",byte, level->num_enemies); byte += 1;
+	printf("%3d: ppath   %02x %02x %02x\n",byte,
+			(uint24_t)level->paths & 0xFF,
+			((uint24_t)level->paths >> 8) & 0xFF,
+			((uint24_t)level->paths >> 16) & 0xFF
+			); byte += 3;
+	printf("%3d: pshapes %02x %02x %02x\n",byte,
+			(uint24_t)level->shapes & 0xFF,
+			((uint24_t)level->shapes >> 8) & 0xFF,
+			((uint24_t)level->shapes >> 16) & 0xFF
+			); byte += 3;
+	for (int i=0;i<level->num_path_segments;i++)
+	{
+	/*
+	6 Position A;
+	6 Position B;
+	1 bool horiz;
+	18 ValidNext nextA[3]; // the other possible directions to move in from A
+	3 int num_validA;
+	18 ValidNext nextB[3]; // the other possible directions to move in from B
+	3 int num_validB;
+	
+	*/
+
+	}
+	printf("%d bytes",byte);
+
+	wait();
+}
+
 #define DIR_OPP(d) ((d+2)%4)
 
 bool save_level(char *fname, Level *level)
 {
 	// Open the file for writing
 	FILE *fp;
-	int bytes_written = 0;
+	int objs_written = 0;
 
 	if ( !(fp = fopen( fname, "wb" ) ) ) return false;
 
-	bytes_written = fwrite( (const void*) level, sizeof(Level), 1, fp);
-	if (bytes_written==0) return false;
+	objs_written = fwrite( (const void*) level, sizeof(Level), 1, fp);
+	if (objs_written!=1) {
+	   TAB(25,0);printf("Fail %d\n",objs_written);
+	   return false;
+	}
 	
-	bytes_written += fwrite( (const void*) level->num_path_segments, sizeof(int), 1, fp);
-	bytes_written += fwrite( (const void*) level->num_shapes, sizeof(int), 1, fp);
 	if (level->num_path_segments > 0)
 	{
-		bytes_written += fwrite( (const void*) level->paths, sizeof(PathSegment), level->num_path_segments, fp);
+		objs_written = fwrite( (const void*) level->paths, sizeof(PathSegment), level->num_path_segments, fp);
+		if ( objs_written != level->num_path_segments )
+		{
+			TAB(25,0);printf("Fail P %d!=%d", objs_written,  level->num_path_segments);
+			return false;
+		}
 	}
 	if (level->num_shapes > 0)
 	{
-		bytes_written += fwrite( (const void*) level->shapes, sizeof(Shape), level->num_shapes, fp);
+		objs_written = fwrite( (const void*) level->shapes, sizeof(Shape), level->num_shapes, fp);
+		if ( objs_written != level->num_shapes )
+		{
+			TAB(25,0);printf("Fail S %d!=%d", objs_written,  level->num_shapes);
+			return false;
+		}
 	}
 
-	TAB(0,1);printf("Wrote %d bytes\n",bytes_written);
+	TAB(25,0);printf("OK             ");
 	
 	fclose(fp);
 
@@ -723,27 +838,33 @@ Level* load_level(char *fname)
 
 	Level *newlevel = (Level*) calloc(1, sizeof(Level) );
 	
-	int bytes_read = fread( &level, sizeof(Level), 1, fp );
-	if ( bytes_read != sizeof(Level) || newlevel->version != SAVE_LEVEL_VERSION )
+	int objs_read = fread( newlevel, sizeof(Level), 1, fp );
+	if ( objs_read != 1 || newlevel->version != SAVE_LEVEL_VERSION )
 	{
-		TAB(0,1);printf("Fail %s bytes %d!=%d\n", fname, bytes_read, sizeof(Level));
+		TAB(25,0);printf("Fail L %d!=1 v%d\n", objs_read, newlevel->version );
 		return NULL;
 	}
-	// read the info about the level
-	//  - number of paths
-	//  - number of shapes
-
+	newlevel->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
+	newlevel->shapes = (Shape*) calloc(MAX_SHAPES, sizeof(Shape));
 	if (newlevel->num_path_segments > 0)
 	{
-		newlevel->paths = (PathSegment*) calloc(newlevel->num_path_segments, sizeof(PathSegment));
-		bytes_read += fread( &level->paths, sizeof(PathSegment), newlevel->num_path_segments, fp );
+		objs_read = fread( newlevel->paths, sizeof(PathSegment), newlevel->num_path_segments, fp );
+		if ( objs_read != newlevel->num_path_segments )
+		{
+			TAB(25,0);printf("Fail P %d!=%d\n", objs_read,  newlevel->num_path_segments);
+			return NULL;
+		}
 	}
-	if (level->num_shapes > 0)
+	if (newlevel->num_shapes > 0)
 	{
-		newlevel->shapes = (Shape*) calloc(newlevel->num_shapes, sizeof(Shape));
-		bytes_read += fread( &level->shapes, sizeof(Shape), newlevel->num_shapes, fp );
+		objs_read = fread( newlevel->shapes, sizeof(Shape), newlevel->num_shapes, fp );
+		if ( objs_read != newlevel->num_shapes )
+		{
+			TAB(25,0);printf("Fail S %d!=%d\n", objs_read,  newlevel->num_shapes);
+			return NULL;
+		}
 	}
-	printf("Read %d bytes, %d segs %d shapes\n",bytes_read, newlevel->num_path_segments, newlevel->num_shapes);
+	TAB(25,0);printf("OK             ");
 
 	return newlevel;
 }
@@ -753,14 +874,14 @@ Level *create_blank_level()
 	Level *level = (Level*) calloc(1, sizeof(Level) );
 	level->version = SAVE_LEVEL_VERSION;
 	level->num_path_segments = 0;
-	level->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
 	level->num_shapes = 0;
-	level->shapes = (Shape*) calloc(MAX_SHAPES, sizeof(Shape));
 	level->colour_unpainted_line = 8;
 	level->colour_painted_line = 15;
 	level->colour_fill = 1;
 	level->bonus = 1000;
 	level->num_enemies = 1;
+	level->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
+	level->shapes = (Shape*) calloc(MAX_SHAPES, sizeof(Shape));
 
 	return level;
 }
