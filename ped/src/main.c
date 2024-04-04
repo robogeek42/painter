@@ -66,7 +66,6 @@ typedef struct {
 	bool seg_complete[MAX_SHAPE_SEGS];
 	bool complete;
 	int value;
-	int colour;
 	Position TopLeft;
 	Position BotRight;
 } Shape;
@@ -95,7 +94,7 @@ clock_t key_wait_ticks;
 
 void wait();
 void game_loop();
-void draw_level();
+void draw_level(bool fill);
 void draw_level_debug();
 void set_point( Position *ppos );
 void draw_rulers();
@@ -215,14 +214,22 @@ char * getline(void) {
     *line = '\0';
     return linep;
 }
-void input_string(int x, int y, char *msg, char *input, int max)
+void input_string(int x, int y, char *msg, char *input, unsigned int max)
 {
 	char *buffer;
 
 	TAB(x,y);
 	printf("%s:",msg);
 	buffer = getline();
-	strcpy(input, buffer);
+	if (strlen(buffer)>max)
+	{
+		strncpy(input, buffer, max);
+		input[max-1]=0;
+	}
+	else
+	{
+		strcpy(input, buffer);
+	}
 	free(buffer);
 	clear_line(y);
 }
@@ -285,24 +292,32 @@ bool enter_path_segment( int seg )
 	}
 	return changed;
 }
+
+void clear_drawing()
+{
+	vdp_move_to(4,20);
+	vdp_gcol(0,0);
+	vdp_filled_rect(319,223);
+}
+
 void game_loop()
 {
 	int exit=0;
 	
 	key_wait_ticks = clock();
 
+	level->colour_fill = input_int(0,1,"Fill colour?");
+
 	vdp_clear_screen();
 
 	do {
 		if (changed)
 		{
-			vdp_move_to(4,20);
-			vdp_gcol(0,0);
-			vdp_filled_rect(319,223);
+			clear_drawing();
 
 			draw_screen();
 			draw_rulers();
-			draw_level();
+			draw_level(true);
 			changed=false;
 		}
 
@@ -384,6 +399,18 @@ void game_loop()
 			}
 		}
 
+		if ( vdp_check_key_press( KEY_c ) )  // c change fill colour for this level
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				clear_line(1);
+				level->colour_fill = input_int(0,1,"Fill colour?");
+				clear_line(1);
+				changed=true;
+			}
+		}
+
 		if ( vdp_check_key_press( KEY_delete ) )  // delete most recent segment only
 		{
 			if (key_wait_ticks < clock()) 
@@ -444,9 +471,9 @@ void game_loop()
 				if ( ok )
 				{
 					// check they are all different
-					for (int s=0;s<MAX_SHAPE_SEGS-1;s++)
+					for (int s=0; s < level->num_shapes -1;s++)
 					{
-						for (int c=1;c<MAX_SHAPE_SEGS;c++)
+						for (int c=1; c < level->num_shapes ;c++)
 						{
 							if (segs[s]==segs[c]) 
 							{
@@ -467,7 +494,6 @@ void game_loop()
 					}
 					clear_line(1);
 					level->shapes[level->num_shapes].value = input_int(0,1,"Score:");
-					level->shapes[level->num_shapes].colour = input_int(0,1,"Colour:");
 					
 					// get TopLeft and BottomRight
 					Position pos_tl, pos_br;
@@ -491,9 +517,12 @@ void game_loop()
 					level->shapes[level->num_shapes].BotRight.y = pos_br.y;
 
 					level->shapes[level->num_shapes].num_segments = num_segs;
+					level->shapes[level->num_shapes].complete = false;
 
 					level->num_shapes++;
+
 				}
+				changed=true;
 			}
 		}
 
@@ -509,7 +538,7 @@ void game_loop()
 				if ( lors == 's' || lors == 'S' )
 				{
 					clear_line(1);
-					input_string(0,1,"Filename:", filename,42);
+					input_string(0,1,"Filename:", filename, 42);
 					bool ret = save_level(filename, level);
 					if (!ret) {
 						TAB(25,0);printf("Fail to save");
@@ -518,7 +547,7 @@ void game_loop()
 				if ( lors == 'l' || lors == 'L' )
 				{
 					clear_line(1);
-					input_string(0,1,"Filename:", filename,42);
+					input_string(0,1,"Filename:", filename, 42);
 					Level *newlevel = load_level(filename);
 					if (newlevel!=NULL)
 					{
@@ -644,8 +673,15 @@ void draw_path_segment_label( PathSegment *pps, int n ) {
 	printf("%d",n);
 }
 
-void draw_level()
+void draw_level(bool fill)
 {
+	if (fill)
+	{
+		for ( int s=0; s < level->num_shapes; s++ )
+		{
+			fill_shape(s);
+		}
+	}
 	vdp_write_at_graphics_cursor();
 	for (int p = 0; p < level->num_path_segments; p++)
 	{
@@ -667,6 +703,8 @@ void draw_level()
 
 void draw_level_debug()
 {
+	clear_drawing();
+	draw_level(false);
 	for (int p=0; p<level->num_path_segments; p++)
 	{
 		TAB(30,0);printf("seg:%d ",p);
@@ -690,8 +728,9 @@ void draw_level_debug()
 		TAB(8,1);printf("Press Any key");
 		wait();
 		TAB(8,1);printf("             ");
-		draw_level();
+		draw_level(false);
 	}
+	draw_level(true);
 }
 
 bool is_near( int a, int b, int plusminus )
@@ -715,7 +754,7 @@ void copy_position(Position *pFrom, Position *pTo)
 
 void fill_shape( int s )
 {
-	vdp_gcol(0, level->shapes[s].colour);
+	vdp_gcol(0, level->colour_fill);
 	int x1 = level->shapes[s].TopLeft.x;
 	int y1 = level->shapes[s].TopLeft.y;
 	int x2 = level->shapes[s].BotRight.x;
