@@ -300,13 +300,91 @@ void clear_drawing()
 	vdp_filled_rect(319,223);
 }
 
+int find_ends(Position pos, int *endslist)
+{
+	int count=0;
+
+	for (int i=0; i<level->num_path_segments; i++)
+	{
+		if ( pos.x == level->paths[i].A.x && pos.y == level->paths[i].A.y )
+		{
+			endslist[count++] = i;
+		}
+		if ( pos.x == level->paths[i].B.x && pos.y == level->paths[i].B.y )
+		{
+			endslist[count++] = i;
+		}
+	}
+
+	return count;
+}
+
+bool is_before(PathSegment *a, PathSegment *b, bool check_x)
+{
+	if (check_x)
+	{
+		int max_a = MAX(a->A.x, a->B.x);
+		int min_b = MIN(b->A.x, b->B.x);
+		return (max_a <= min_b);
+	} else {
+		int max_a = MAX(a->A.y, a->B.y);
+		int min_b = MIN(b->A.y, b->B.y);
+		return (max_a <= min_b);
+	}
+}
+int getNextDir(PathSegment *from, PathSegment *to)
+{
+	// work out direction key from seg to next
+	// case 1 - both horizontal
+	if ( from->horiz == to->horiz == true)
+	{
+		if (is_before(from, to, true)) 
+		{
+			return BITS_RIGHT;
+		} else {
+			return BITS_LEFT;
+		}
+	} 
+	// case 2 - both vertical
+	if ( from->horiz == to->horiz == false)
+	{
+		if (is_before(from, to, false)) 
+		{
+			return BITS_DOWN;
+		} else {
+			return BITS_UP;
+		}
+	} 
+	// case 3 - from horizontal to vertical
+	if ( from->horiz )
+	{
+		if (is_before(from, to, false)) 
+		{
+			return BITS_DOWN;
+		} else {
+			return BITS_UP;
+		}
+	}
+	// case 4 - from vertical to horizontal
+	if ( from->horiz == false )
+	{
+		if (is_before(from, to, true)) 
+		{
+			return BITS_DOWN;
+		} else {
+			return BITS_UP;
+		}
+	}
+	return 0;
+}
+
 void game_loop()
 {
 	int exit=0;
 	
 	key_wait_ticks = clock();
 
-	level->colour_fill = input_int(0,1,"Fill colour?");
+	level->colour_fill = 1; // default, can set for a map
 
 	vdp_clear_screen();
 
@@ -399,7 +477,7 @@ void game_loop()
 			}
 		}
 
-		if ( vdp_check_key_press( KEY_c ) )  // c change fill colour for this level
+		if ( vdp_check_key_press( KEY_o ) )  // o change fill colour for this level
 		{
 			if (key_wait_ticks < clock()) 
 			{
@@ -561,6 +639,43 @@ void game_loop()
 				clear_line(1);
 			}
 		}
+		if ( vdp_check_key_press( KEY_c ) ) // connections
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				clear_line(1);
+				TAB(0,1);printf("Updating connections");
+				for (int seg=0; seg < level->num_path_segments; seg++)
+				{
+					PathSegment *pps = &level->paths[seg];
+					int endslist[10]; 
+					int endslist_count=0;
+					endslist_count = find_ends(pps->A, endslist);
+					pps->num_validA = endslist_count;
+					int ind=0;
+					for (int i=0; i < endslist_count; i++)
+					{
+						if (endslist[i] == seg) continue;
+
+						pps->nextA[ind].seg = endslist[i];
+						pps->nextA[ind].key = getNextDir(pps, &level->paths[endslist[i]]);
+						ind++;
+					}
+					endslist_count = find_ends(level->paths[seg].B, endslist);
+					level->paths[seg].num_validB = endslist_count;
+					for (int i=0; i < endslist_count; i++)
+					{
+						if (endslist[i] == seg) continue;
+
+						pps->nextB[ind].seg = endslist[i];
+						pps->nextB[ind].key = getNextDir(pps, &level->paths[endslist[i]]);
+						ind++;
+					}
+				}
+			}
+			TAB(23,1);printf("Done.");
+		}
 
 		if ( vdp_check_key_press( KEY_x ) ) // x - exit
 		{
@@ -627,9 +742,10 @@ void draw_screen()
 
 	print_key(0,29,"","D","ebug");
 	print_key(6,29,"","h/v/P", "ath");
-	print_key(16,29,"","S","hape");
-	print_key(22,29,"","C","onnect");
-	print_key(30,29,"","F","ile");
+	print_key(15,29,"","S","hape");
+	print_key(21,29,"","C","onnect");
+	print_key(29,29,"","F","ile");
+	print_key(34,29,"c","O","l");
 }
 
 void draw_path_segment( PathSegment *pps ) {
