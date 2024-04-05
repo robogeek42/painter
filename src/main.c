@@ -70,27 +70,39 @@ typedef struct {
 	int count;
 } PathSegment;
 
-PathSegment *paths;
-
-int num_segments = 8;
-int curr_path_seg = 0;
+#define MAX_SHAPE_SEGS 30
+#define MAX_PATHS 50
+#define MAX_SHAPES 20
 
 typedef struct {
 	int num_segments;
-	int segments[10];
-	bool seg_complete[10];
+	int segments[MAX_SHAPE_SEGS];
+	bool seg_complete[MAX_SHAPE_SEGS];
 	bool complete;
 	int value;
-	int colour;
 	Position TopLeft;
 	Position BotRight;
 } Shape;
 
-Shape shapes[] = {
-	{ 5, { 0, 1, 2, 3, 4 }, {}, false, 300, 9, {100,100},{200,200} },
-	{ 4, { 5, 6, 7, 1 }, {}, false, 100, 13, {200,100},{250,150} }
-};
-int num_shapes = 2;
+#define SAVE_LEVEL_VERSION 1
+typedef struct {
+	uint8_t version;
+	int num_path_segments;
+	int num_shapes;
+	int colour_unpainted_line;
+	int colour_painted_line;
+	int colour_fill;
+	int bonus;
+	uint8_t num_enemies;
+	PathSegment *paths;
+	Shape *shapes;
+} Level;
+
+#define MAX_LEVELS 30
+Level *levels[MAX_LEVELS] = {};
+int cl = 0; // current level
+
+int curr_path_seg = 0;
 
 // counters
 clock_t key_wait_ticks;
@@ -115,7 +127,6 @@ void wait();
 void game_loop();
 void load_images();
 void create_sprites();
-bool load_map();
 void draw_map();
 void draw_map_debug();
 void set_point( Position *ppos );
@@ -131,6 +142,7 @@ void flash_screen(int repeat, int speed);
 void move_enemies();
 void play_beep();
 void play_wah_wah();
+Level* load_level(char *fname);
 
 void wait()
 {
@@ -162,7 +174,15 @@ int main(int argc, char *argv[])
 	load_images();
 	create_sprites();
 
-	load_map();
+
+	levels[cl] = load_level("ped/level1.data");
+	if (levels[cl]==NULL)
+	{
+		printf("Failed to load level\n");
+		return 0;
+	}
+	curr_path_seg = 0;
+
 	vdp_audio_reset_channel( 0 );
 	vdp_audio_reset_channel( 1 );
 
@@ -188,14 +208,14 @@ void game_loop()
 	draw_map();
 	update_scores();
 
-	pos.x = paths[curr_path_seg].A.x;
-	pos.y = paths[curr_path_seg].A.y;
+	pos.x = levels[cl]->paths[curr_path_seg].A.x;
+	pos.y = levels[cl]->paths[curr_path_seg].A.y;
 	set_point( &pos );
 	copy_position(&pos, &last_play_beep_pos);
 
 	enemy_curr_segment[0] = 3;
-	enemy_pos[0].x = paths[enemy_curr_segment[0]].A.x;
-	enemy_pos[0].y = paths[enemy_curr_segment[0]].A.y;
+	enemy_pos[0].x = levels[cl]->paths[enemy_curr_segment[0]].A.x;
+	enemy_pos[0].y = levels[cl]->paths[enemy_curr_segment[0]].A.y;
 	enemy_dir[0] = BITS_LEFT;
 	
 	vdp_select_sprite(1);
@@ -228,12 +248,12 @@ void game_loop()
 		{
 			key_wait_ticks = clock() + key_wait;
 
-			move_along_path_segment(&paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
+			move_along_path_segment(&levels[cl]->paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
 			vdp_select_sprite(0);
 			vdp_move_sprite_to(pos.x-4, pos.y-4);
 			vdp_refresh_sprites();
-			if ( is_at_position( &pos, &paths[ curr_path_seg ].A ) ||
-			     is_at_position( &pos, &paths[ curr_path_seg ].B ) )
+			if ( is_at_position( &pos, &levels[cl]->paths[ curr_path_seg ].A ) ||
+			     is_at_position( &pos, &levels[cl]->paths[ curr_path_seg ].B ) )
 			{
 				if (! is_at_position(&pos, &last_play_beep_pos)) 
 				{
@@ -243,7 +263,7 @@ void game_loop()
 			}
 
 
-			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, paths[curr_path_seg].count);
+			TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, levels[cl]->paths[curr_path_seg].count);
 			if (score_changed) {
 				update_scores();
 			}
@@ -363,19 +383,20 @@ void draw_path_segment( PathSegment *pps ) {
 void draw_map()
 {
 	vdp_gcol(0, 8);
-	for (int p = 0; p < num_segments; p++)
+	for (int p = 0; p < levels[cl]->num_path_segments; p++)
 	{
-		draw_path_segment( &paths[p] );
+		draw_path_segment( &levels[cl]->paths[p] );
 	}
 	vdp_write_at_graphics_cursor();
 	vdp_gcol(0,15);
-	for ( int s=0; s < num_shapes; s++ )
+	for ( int s=0; s < levels[cl]->num_shapes; s++ )
 	{
-		int w = shapes[s].BotRight.x - shapes[s].TopLeft.x;
-		int h = shapes[s].BotRight.y - shapes[s].TopLeft.y;
-		vdp_move_to( shapes[s].TopLeft.x + (w/2) - 12, shapes[s].TopLeft.y + (h/2) - 4);
-		printf("%d",shapes[s].value);
-		shapes[s].complete = false;
+		Shape *pshape = &levels[cl]->shapes[s];
+		int w = pshape->BotRight.x - pshape->TopLeft.x;
+		int h = pshape->BotRight.y - pshape->TopLeft.y;
+		vdp_move_to( pshape->TopLeft.x + (w/2) - 12, pshape->TopLeft.y + (h/2) - 4);
+		printf("%d",pshape->value);
+		pshape->complete = false;
 	}
 	vdp_write_at_text_cursor();
 }
@@ -383,23 +404,24 @@ void draw_map()
 void draw_map_debug()
 {
 	draw_map();
-	for (int p=0; p<num_segments; p++)
+	for (int p=0; p<levels[cl]->num_path_segments; p++)
 	{
+		PathSegment *pps = &levels[cl]->paths[p];
 		vdp_gcol(0,1);
-		draw_path_segment( &paths[p] );
+		draw_path_segment( pps );
 		//TAB(0,1+p);printf("%d: A %d,%d B %d,%d", p, 
-		//		paths[p].A.x, paths[p].A.y, paths[p].B.x, paths[p].B.y);
+		//		pps->A.x, pps->A.y, pps->B.x, pps->B.y);
 		for (int n=0;n<3;n++)
 		{
-			if (paths[p].nextA[n].key>0)
+			if (pps->nextA[n].key>0)
 			{
 				vdp_gcol(0,2);
-				draw_path_segment( &paths[paths[p].nextA[n].seg] );
+				draw_path_segment( &levels[cl]->paths[pps->nextA[n].seg] );
 			}
-			if (paths[p].nextB[n].key>0)
+			if (pps->nextB[n].key>0)
 			{
 				vdp_gcol(0,3);
-				draw_path_segment( &paths[paths[p].nextB[n].seg] );
+				draw_path_segment( &levels[cl]->paths[pps->nextB[n].seg] );
 			}
 		}
 		wait();
@@ -446,37 +468,39 @@ void set_point( Position *ppos )
 	// we haven't visted yet
 	if ( col == 0x555555 )
 	{
+		PathSegment *pps = &levels[cl]->paths[curr_path_seg];
+
 		// reduce count in this line segment
-		if (paths[curr_path_seg].count>0)
+		if (pps->count>0)
 		{
-			paths[curr_path_seg].count--;
+			pps->count--;
 			// also reduce count in connected segments
-			if ( is_at_position( ppos, &paths[curr_path_seg].A ) )
+			if ( is_at_position( ppos, &pps->A ) )
 			{
 				//printf("at end A of %d  \n", curr_path_seg);
 				for (int n=0; n<3; n++)
 				{
-					if ( paths[curr_path_seg].nextA[n].key > 0 )
+					if ( pps->nextA[n].key > 0 )
 					{
-						if ( paths[ paths[curr_path_seg].nextA[n].seg ].count > 0)
+						if ( levels[cl]->paths[ pps->nextA[n].seg ].count > 0)
 						{
-							paths[ paths[curr_path_seg].nextA[n].seg ].count--;
-							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  paths[curr_path_seg].nextA[n].seg, paths[ paths[curr_path_seg].nextA[n].seg ].count);
+							levels[cl]->paths[ pps->nextA[n].seg ].count--;
+							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  pps->nextA[n].seg, levels[cl]->paths[ pps->nextA[n].seg ].count);
 						}
 					}
 				}
 			}
-			if ( is_at_position( ppos, &paths[curr_path_seg].B ) )
+			if ( is_at_position( ppos, &pps->B ) )
 			{
 				//printf("at end B of %d  \n", curr_path_seg);
 				for (int n=0; n<3; n++)
 				{
-					if ( paths[curr_path_seg].nextB[n].key > 0 )
+					if ( pps->nextB[n].key > 0 )
 					{
-						if ( paths[ paths[curr_path_seg].nextB[n].seg ].count > 0)
+						if ( levels[cl]->paths[ pps->nextB[n].seg ].count > 0)
 						{
-							paths[ paths[curr_path_seg].nextB[n].seg ].count--;
-							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  paths[curr_path_seg].nextB[n].seg, paths[ paths[curr_path_seg].nextB[n].seg ].count);
+							levels[cl]->paths[ pps->nextB[n].seg ].count--;
+							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  pps->nextB[n].seg, levels[cl]->paths[ pps->nextB[n].seg ].count);
 						}
 					}
 				}
@@ -485,7 +509,7 @@ void set_point( Position *ppos )
 			vdp_gcol(0,15);
 			vdp_point( ppos->x, ppos->y );
 
-			if ( paths[curr_path_seg].count == 0 )
+			if ( pps->count == 0 )
 			{
 				check_shape_complete();
 			}
@@ -520,7 +544,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextA[i].key > 0 && (dir & pps->nextA[i].key ) )
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( paths[pps->nextA[i].seg].horiz )
+				if ( levels[cl]->paths[pps->nextA[i].seg].horiz )
 				{
 					if ( ppos->x == pps->A.x )
 					{
@@ -546,7 +570,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextB[i].key > 0 && (dir & pps->nextB[i].key ))
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( paths[pps->nextB[i].seg].horiz )
+				if ( levels[cl]->paths[pps->nextB[i].seg].horiz )
 				{
 					if ( ppos->x == pps->B.x )
 					{
@@ -594,7 +618,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextA[i].key > 0 && (dir & pps->nextA[i].key ) )
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( !paths[pps->nextA[i].seg].horiz )
+				if ( !levels[cl]->paths[pps->nextA[i].seg].horiz )
 				{
 					if ( ppos->y == pps->A.y )
 					{
@@ -620,7 +644,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextB[i].key > 0 && (dir & pps->nextB[i].key ))
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( !paths[pps->nextB[i].seg].horiz )
+				if ( !levels[cl]->paths[pps->nextB[i].seg].horiz )
 				{
 					if ( ppos->y == pps->B.y )
 					{
@@ -650,24 +674,25 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 void check_shape_complete()
 {
 	bool all_complete = true;
-	for (int s=0; s < num_shapes; s++)
+	for (int s=0; s < levels[cl]->num_shapes; s++)
 	{
-		bool shape_complete = shapes[s].complete;
+		Shape *pshape = &levels[cl]->shapes[s];
+		bool shape_complete = pshape->complete;
 		if (!shape_complete)
 		{
-			int incomplete = shapes[s].num_segments;
-			for (int seg=0; seg < shapes[s].num_segments; seg++)
+			int incomplete = pshape->num_segments;
+			for (int seg=0; seg < pshape->num_segments; seg++)
 			{
-				if ( paths[ shapes[s].segments[seg] ].count <= 0 )
+				if ( levels[cl]->paths[ pshape->segments[seg] ].count <= 0 )
 				{
-					shapes[s].seg_complete[seg] = true;
+					pshape->seg_complete[seg] = true;
 					incomplete--;
 				}
 			}
 			if (incomplete==0) {
-				 shapes[s].complete = true;
+				 pshape->complete = true;
 				 fill_shape( s, false );
-				 score += shapes[s].value;
+				 score += pshape->value;
 			}
 			else
 			{
@@ -683,16 +708,17 @@ void check_shape_complete()
 
 void fill_shape( int s, bool fast )
 {
-	vdp_gcol(0, shapes[s].colour);
-	int x1 = shapes[s].TopLeft.x;
-	int y1 = shapes[s].TopLeft.y;
-	int x2 = shapes[s].BotRight.x;
-	int y2 = shapes[s].BotRight.y;
+	Shape *pshape = &levels[cl]->shapes[s];
+	vdp_gcol(0, levels[cl]->colour_fill);
+	int x1 = pshape->TopLeft.x;
+	int y1 = pshape->TopLeft.y;
+	int x2 = pshape->BotRight.x;
+	int y2 = pshape->BotRight.y;
 	// fast fill:
 	if (fast)
 	{
-		vdp_move_to( shapes[s].TopLeft.x+1, shapes[s].TopLeft.y+1 );
-		vdp_filled_rect( shapes[s].BotRight.x-1, shapes[s].BotRight.y-1 );
+		vdp_move_to( pshape->TopLeft.x+1, pshape->TopLeft.y+1 );
+		vdp_filled_rect( pshape->BotRight.x-1, pshape->BotRight.y-1 );
 	} else {
 		// slow fill
 		vdp_audio_reset_channel( 1 );
@@ -738,9 +764,10 @@ void flash_screen(int repeat, int speed)
 int direction_choice( int seg, bool at_A )
 {
 	int dir = 0;
-	if ( paths[seg].horiz )
+	PathSegment *pps = &levels[cl]->paths[seg];
+	if ( pps->horiz )
 	{
-		if ( paths[seg].A.x > paths[seg].B.x )
+		if ( pps->A.x > pps->B.x )
 		{
 			if (at_A) dir = BITS_LEFT; else dir = BITS_RIGHT;
 		} else {
@@ -749,7 +776,7 @@ int direction_choice( int seg, bool at_A )
 	}
 	else
 	{
-		if ( paths[seg].A.y > paths[seg].B.y )
+		if ( pps->A.y > pps->B.y )
 		{
 			if (at_A) dir = BITS_UP; else dir = BITS_DOWN;
 		} else {
@@ -763,22 +790,26 @@ void move_enemies()
 {
 	for (int en=0; en<num_enemies; en++)
 	{
+		PathSegment *pps = &levels[cl]->paths[enemy_curr_segment[en]];
+		//for debug printf below
 		//int old_seg = enemy_curr_segment[en];
 		//int old_dir = enemy_dir[en];
-		move_along_path_segment(&paths[enemy_curr_segment[en]], &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
+
+		move_along_path_segment(pps, &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
+
 		// choose a new segment
-		if ( is_at_position( &enemy_pos[en], &paths[enemy_curr_segment[en]].A ) )
+		if ( is_at_position( &enemy_pos[en], &pps->A ) )
 		{
-			int rand_seg_num = ( rand() % paths[enemy_curr_segment[en]].num_validA );
-			enemy_curr_segment[en] = paths[enemy_curr_segment[en]].nextA[rand_seg_num].seg;
-			enemy_dir[en] = paths[enemy_curr_segment[en]].nextA[rand_seg_num].key;
+			int rand_seg_num = ( rand() % pps->num_validA );
+			enemy_curr_segment[en] = pps->nextA[rand_seg_num].seg;
+			enemy_dir[en] = pps->nextA[rand_seg_num].key;
 			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
-		if ( is_at_position( &enemy_pos[en], &paths[enemy_curr_segment[en]].B ) )
+		if ( is_at_position( &enemy_pos[en], &pps->B ) )
 		{
-			int rand_seg_num = ( rand() % paths[enemy_curr_segment[en]].num_validB );
-			enemy_dir[en] = paths[enemy_curr_segment[en]].nextB[rand_seg_num].key;
-			enemy_curr_segment[en] = paths[enemy_curr_segment[en]].nextB[rand_seg_num].seg;
+			int rand_seg_num = ( rand() % pps->num_validB );
+			enemy_dir[en] = pps->nextB[rand_seg_num].key;
+			enemy_curr_segment[en] = pps->nextB[rand_seg_num].seg;
 			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		//TAB(0,2);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
@@ -786,63 +817,6 @@ void move_enemies()
 		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
 		vdp_refresh_sprites();
 	}
-}
-
-bool load_map()
-{
-	paths = (PathSegment*) calloc(8, sizeof(PathSegment));
-
-	paths[0] = (PathSegment)
-		// A          B         horiz     
-		/* 0 */ { {100,100}, {200,100}, true,  
-			{ { BD, 4 }, {}, {} }, 1,
-			{ { BD, 1 }, { BR, 5 }, {} }, 2,
-			101
-		};
-	paths[1] = (PathSegment)
-		/* 1 */ { {200,100}, {200,150}, false, 
-			{ { BL, 0 }, { BR, 5 }, {} }, 2,
-			{ { BR, 7 }, { BD, 2 }, {} }, 2,
-			51
-		};
-	paths[2] = (PathSegment)
-		/* 2 */ { {200,150}, {200,200}, false, 
-			{ { BU, 1 }, { BR, 7 }, {} }, 2,
-			{ { BL, 3 }, {}, {} }, 1,
-			51
-		};
-	paths[3] = (PathSegment)
-		/* 3 */ { {200,200}, {100,200}, true,  
-			{ { BU, 2 }, {}, {} }, 1,
-			{ { BU, 4 }, {}, {} }, 1,
-			101
-		};
-	paths[4] = (PathSegment)
-		/* 4 */ { {100,200}, {100,100}, false, 
-			{ { BR, 3 }, {}, {} }, 1,
-			{ { BR, 0 }, {}, {} }, 1,
-			101
-		};
-	paths[5] = (PathSegment)
-		/* 5 */ { {200,100}, {250,100}, true, 
-			{ { BD, 1 }, { BL, 0 }, {} }, 2,
-			{ { BD, 6 }, {}, {} }, 1,
-			51
-		};
-	paths[6] = (PathSegment)
-		/* 6 */ { {250,100}, {250,150}, false, 
-			{ { BL, 5 }, {}, {} }, 1,
-			{ { BL, 7 }, {}, {} }, 1,
-			51
-		};
-	paths[7] = (PathSegment)
-		/* 7 */ { {250,150}, {200,150}, true, 
-			{ { BU, 6 }, {}, {} }, 1,
-			{ { BU, 1 }, { BD, 2 }, {} }, 2,
-			51
-		};
-
-	return true;
 }
 
 void play_beep()
@@ -879,3 +853,44 @@ void stop_wah_wah()
 {
 	vdp_audio_reset_channel( 2 );
 }
+
+
+Level* load_level(char *fname)
+{
+	FILE *fp;
+	
+	if ( !(fp = fopen( fname, "rb" ) ) ) return NULL;
+
+	Level *newlevel = (Level*) calloc(1, sizeof(Level) );
+	
+	int objs_read = fread( newlevel, sizeof(Level), 1, fp );
+	if ( objs_read != 1 || newlevel->version != SAVE_LEVEL_VERSION )
+	{
+		TAB(25,0);printf("Fail L %d!=1 v%d\n", objs_read, newlevel->version );
+		return NULL;
+	}
+	newlevel->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
+	newlevel->shapes = (Shape*) calloc(MAX_SHAPES, sizeof(Shape));
+	if (newlevel->num_path_segments > 0)
+	{
+		objs_read = fread( newlevel->paths, sizeof(PathSegment), newlevel->num_path_segments, fp );
+		if ( objs_read != newlevel->num_path_segments )
+		{
+			TAB(25,0);printf("Fail P %d!=%d\n", objs_read,  newlevel->num_path_segments);
+			return NULL;
+		}
+	}
+	if (newlevel->num_shapes > 0)
+	{
+		objs_read = fread( newlevel->shapes, sizeof(Shape), newlevel->num_shapes, fp );
+		if ( objs_read != newlevel->num_shapes )
+		{
+			TAB(25,0);printf("Fail S %d!=%d\n", objs_read,  newlevel->num_shapes);
+			return NULL;
+		}
+	}
+	TAB(25,0);printf("OK             ");
+
+	return newlevel;
+}
+

@@ -57,6 +57,7 @@ typedef struct {
 	int num_validA;
 	ValidNext nextB[3]; // the other possible directions to move in from B
 	int num_validB;
+	int count;
 } PathSegment;
 
 #define MAX_SHAPE_SEGS 30
@@ -242,6 +243,9 @@ bool input_path_segment_horiz(PathSegment *pps)
 	pps->A.x = input_int(0,1,"Enter A.x");
 	pps->B.x = input_int(0,1,"Enter B.x");
 	pps->horiz = true;
+
+	pps->count = abs(pps->B.x - pps->A.x) + 1;
+
 	if ( pps->A.x == pps->B.x ) return false;
 	if ( pps->A.x >= 320 || pps->B.x >= 320) return false;
 
@@ -255,10 +259,27 @@ bool input_path_segment_vert(PathSegment *pps)
 	pps->A.y = input_int(0,1,"Enter A.y");
 	pps->B.y = input_int(0,1,"Enter B.y");
 	pps->horiz = false;
+
+	pps->count = abs(pps->B.y - pps->A.y) + 1;
+
 	if ( pps->A.y == pps->B.y ) return false;
 	if ( pps->A.y >= 240 || pps->B.y >= 240) return false;
 
 	return true;
+}
+
+void set_path_counts(Level *lvl)
+{
+	for (int p=0; p < lvl->num_path_segments; p++)
+	{
+		PathSegment *pps = &lvl->paths[p];
+		if (pps->horiz)
+		{
+			pps->count = abs(pps->B.x - pps->A.x) + 1;
+		} else {
+			pps->count = abs(pps->B.y - pps->A.y) + 1;
+		}
+	}
 }
 
 bool enter_path_segment( int seg )
@@ -283,8 +304,9 @@ bool enter_path_segment( int seg )
 		level->paths[seg].B.x = ps.B.x;
 		level->paths[seg].B.y = ps.B.y;
 		level->paths[seg].horiz = ps.horiz;
-		COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d)",seg,
-				ps.A.x,ps.A.y,ps.B.x,ps.B.y);
+		level->paths[seg].count = ps.count;
+		COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d) cnt:%d",seg,
+				ps.A.x,ps.A.y,ps.B.x,ps.B.y, ps.count);
 		changed=true;
 	} else {
 		COL(7);TAB(0,1);printf("Failed seg: (%d,%d)->(%d,%d)",
@@ -1009,6 +1031,7 @@ Level* load_level(char *fname)
 			TAB(25,0);printf("Fail P %d!=%d\n", objs_read,  newlevel->num_path_segments);
 			return NULL;
 		}
+		set_path_counts(newlevel);
 	}
 	if (newlevel->num_shapes > 0)
 	{
