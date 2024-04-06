@@ -325,11 +325,11 @@ bool enter_path_segment( int seg )
 		level->paths[seg].B.y = ps.B.y;
 		level->paths[seg].horiz = ps.horiz;
 		level->paths[seg].count = ps.count;
-		COL(7);TAB(0,1);printf("Added seg:%d (%d,%d)->(%d,%d) cnt:%d",seg,
+		COL(7);TAB(0,1);printf("Added %d (%d,%d)->(%d,%d) c:%d",seg,
 				ps.A.x,ps.A.y,ps.B.x,ps.B.y, ps.count);
 		changed=true;
 	} else {
-		COL(7);TAB(0,1);printf("Failed seg: (%d,%d)->(%d,%d)",
+		COL(7);TAB(0,1);printf("Failed (%d,%d)->(%d,%d)",
 				ps.A.x,ps.A.y,ps.B.x,ps.B.y);
 	}
 	return changed;
@@ -419,6 +419,92 @@ int getNextDir(PathSegment *from, PathSegment *to)
 	}
 	return 0;
 }
+
+void recalc_shape(int snum)
+{
+	// get TopLeft and BottomRight
+	Position pos_tl, pos_br;
+	pos_tl.x = 1000; pos_tl.y = 1000;
+	pos_br.x = 0; pos_br.y = 0;
+
+	for (int s=0;s<level->shapes[snum].num_segments;s++)
+	{
+		if ( level->paths[level->shapes[snum].segments[s]].A.x < pos_tl.x ) pos_tl.x = level->paths[level->shapes[snum].segments[s]].A.x;
+		if ( level->paths[level->shapes[snum].segments[s]].B.x < pos_tl.x ) pos_tl.x = level->paths[level->shapes[snum].segments[s]].B.x;
+		if ( level->paths[level->shapes[snum].segments[s]].A.y < pos_tl.y ) pos_tl.y = level->paths[level->shapes[snum].segments[s]].A.y;
+		if ( level->paths[level->shapes[snum].segments[s]].B.y < pos_tl.y ) pos_tl.y = level->paths[level->shapes[snum].segments[s]].B.y;
+
+		if ( level->paths[level->shapes[snum].segments[s]].A.x > pos_br.x ) pos_br.x = level->paths[level->shapes[snum].segments[s]].A.x;
+		if ( level->paths[level->shapes[snum].segments[s]].B.x > pos_br.x ) pos_br.x = level->paths[level->shapes[snum].segments[s]].B.x;
+		if ( level->paths[level->shapes[snum].segments[s]].A.y > pos_br.y ) pos_br.y = level->paths[level->shapes[snum].segments[s]].A.y;
+		if ( level->paths[level->shapes[snum].segments[s]].B.y > pos_br.y ) pos_br.y = level->paths[level->shapes[snum].segments[s]].B.y;
+	}
+	level->shapes[snum].TopLeft.x = pos_tl.x;
+	level->shapes[snum].TopLeft.y = pos_tl.y;
+	level->shapes[snum].BotRight.x = pos_br.x;
+	level->shapes[snum].BotRight.y = pos_br.y;
+}
+
+bool enter_shape(int snum)
+{
+	bool ok = true;
+	int segs[MAX_SHAPE_SEGS];
+	int num_segs = 0;
+	for (int s=0;s<MAX_SHAPE_SEGS;s++)
+	{
+		clear_line(1);
+		TAB(0,1);printf("Shape: seg %d (-1 = stop) ",s);
+		segs[s] = input_int(27,1,"?");
+		if (segs[s] < 0 ) break;
+		if (segs[s] >= level->num_path_segments )
+		{ 
+			ok = false;
+			break;
+		}
+		vdp_gcol(0,15);
+		draw_path_segment( &level->paths[segs[s]] );
+		num_segs++;
+	}
+	if (num_segs < 4) {
+		clear_line(1);
+		TAB(0,1);printf("Too few segments %d\n",num_segs);
+		ok = false;
+	}
+	if ( ok )
+	{
+		// check they are all different
+		for (int s=0; s < level->shapes[snum].num_segments - 1; s++)
+		{
+			for (int c=1; c < level->shapes[snum].num_segments ;c++)
+			{
+				if (segs[s]==segs[c]) 
+				{
+					clear_line(1);
+					TAB(0,1);printf("segs same %d %d\n",s,c);
+					ok = false;
+					break;
+				}
+			}
+		}
+	}
+	if ( ok )
+	{
+		// copy the segements into the shape in the level
+		for (int s=0;s<num_segs;s++)
+		{
+			level->shapes[snum].segments[s] = segs[s];
+		}
+		clear_line(1);
+		level->shapes[snum].value = input_int(0,1,"Score:");
+		level->shapes[snum].num_segments = num_segs;
+		level->shapes[snum].complete = false;
+
+		recalc_shape( snum );
+
+	}
+	return ok;
+}
+
 
 void game_loop()
 {
@@ -513,9 +599,9 @@ void game_loop()
 				key_wait_ticks = clock() + key_wait;
 				clear_line(1);
 				TAB(0,1); printf("Debug:");
-				vdp_mode(0);
-				print_level_data();
-				vdp_mode(9);
+				//vdp_mode(0);
+				//print_level_data();
+				//vdp_mode(9);
 				draw_level_debug();
 				clear_line(1);
 				changed=true;
@@ -548,18 +634,38 @@ void game_loop()
 				changed=true;
 			}
 		}
-		if ( vdp_check_key_press( KEY_e ) )  // Edit a path segment
+		if ( vdp_check_key_press( KEY_e ) )  // Edit a path segment or shape
 		{
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
 
 				clear_line(1);
-				TAB(0,1);
-				int seg = input_int(0,1,"Enter seg to edit:");
-				if ( enter_path_segment( seg ) )
+				char pos = input_char(0,1,"Path or Shape?");
+				clear_line(1);
+				if (pos == 'p' || pos == 'P' )
 				{
-					changed=true;
+					int seg = input_int(0,1,"Enter seg to edit:");
+
+					PathSegment *ps = &level->paths[seg];
+					TAB(0,28);COL(15);printf("s:%d (%d,%d)->(%d,%d) c:%d",seg, ps->A.x,ps->A.y,ps->B.x,ps->B.y, ps->count);
+					
+					if ( enter_path_segment( seg ) )
+					{
+						changed=true;
+					}
+				}
+				if (pos == 's' || pos == 'S' )
+				{
+					int sh = input_int(0,1,"Enter shape to edit:");
+					if (sh < level->num_shapes )
+					{
+						if ( !enter_shape( sh ) )
+						{
+							TAB(30,0);printf("Error");
+						}
+						changed=true;
+					}
 				}
 			}
 		}
@@ -567,83 +673,12 @@ void game_loop()
 		{
 			if (key_wait_ticks < clock()) 
 			{
-				bool ok = true;
 				key_wait_ticks = clock() + key_wait;
-				int segs[MAX_SHAPE_SEGS];
-				int num_segs = 0;
-				for (int s=0;s<MAX_SHAPE_SEGS;s++)
+				if ( enter_shape( level->num_shapes ) )
 				{
-					clear_line(1);
-					TAB(0,1);printf("Shape: seg %d (-1 = stop) ",s);
-					segs[s] = input_int(27,1,"?");
-					if (segs[s] < 0 ) break;
-					if (segs[s] >= level->num_path_segments )
-					{ 
-						ok = false;
-						break;
-					}
-					vdp_gcol(0,5);
-					draw_path_segment( &level->paths[segs[s]] );
-					num_segs++;
-				}
-				if (num_segs < 4) {
-					clear_line(1);
-					TAB(0,1);printf("Too few segments %d\n",num_segs);
-			   		ok = false;
-				}
-				if ( ok )
-				{
-					// check they are all different
-					for (int s=0; s < level->num_shapes -1;s++)
-					{
-						for (int c=1; c < level->num_shapes ;c++)
-						{
-							if (segs[s]==segs[c]) 
-							{
-								clear_line(1);
-								TAB(0,1);printf("segs same %d %d\n",s,c);
-								ok = false;
-								break;
-							}
-						}
-					}
-				}
-				if ( ok )
-				{
-					// copy the segements into the shape in the level
-					for (int s=0;s<num_segs;s++)
-					{
-						level->shapes[level->num_shapes].segments[s] = segs[s];
-					}
-					clear_line(1);
-					level->shapes[level->num_shapes].value = input_int(0,1,"Score:");
-					
-					// get TopLeft and BottomRight
-					Position pos_tl, pos_br;
-					pos_tl.x = 1000; pos_tl.y = 1000;
-					pos_br.x = 0; pos_br.y = 0;
-					for (int s=0;s<num_segs;s++)
-					{
-						if ( level->paths[segs[s]].A.x < pos_tl.x ) pos_tl.x = level->paths[segs[s]].A.x;
-						if ( level->paths[segs[s]].B.x < pos_tl.x ) pos_tl.x = level->paths[segs[s]].B.x;
-						if ( level->paths[segs[s]].A.y < pos_tl.y ) pos_tl.y = level->paths[segs[s]].A.y;
-						if ( level->paths[segs[s]].B.y < pos_tl.y ) pos_tl.y = level->paths[segs[s]].B.y;
-
-						if ( level->paths[segs[s]].A.x > pos_br.x ) pos_br.x = level->paths[segs[s]].A.x;
-						if ( level->paths[segs[s]].B.x > pos_br.x ) pos_br.x = level->paths[segs[s]].B.x;
-						if ( level->paths[segs[s]].A.y > pos_br.y ) pos_br.y = level->paths[segs[s]].A.y;
-						if ( level->paths[segs[s]].B.y > pos_br.y ) pos_br.y = level->paths[segs[s]].B.y;
-					}
-					level->shapes[level->num_shapes].TopLeft.x = pos_tl.x;
-					level->shapes[level->num_shapes].TopLeft.y = pos_tl.y;
-					level->shapes[level->num_shapes].BotRight.x = pos_br.x;
-					level->shapes[level->num_shapes].BotRight.y = pos_br.y;
-
-					level->shapes[level->num_shapes].num_segments = num_segs;
-					level->shapes[level->num_shapes].complete = false;
-
 					level->num_shapes++;
-
+				} else {
+					TAB(30,0);printf("Error");
 				}
 				changed=true;
 			}
@@ -690,7 +725,7 @@ void game_loop()
 			{
 				key_wait_ticks = clock() + key_wait;
 				clear_line(1);
-				TAB(0,1);printf("Updating connections");
+				TAB(0,1);printf("Update conns");
 				// clear current connections
 				for (int seg=0; seg < level->num_path_segments; seg++)
 				{
@@ -735,7 +770,14 @@ void game_loop()
 					pps->num_validB = ind;
 				}
 			}
-			TAB(23,1);printf("Done.");
+			TAB(13,1);printf("Done. Shapes ");
+			for (int sh=0; sh < level->num_shapes; sh++)
+			{
+				recalc_shape(sh);
+			}
+			TAB(25,1);printf("Done.");
+			clear_drawing();
+			draw_level(true);
 		}
 
 		if ( vdp_check_key_press( KEY_x ) ) // x - exit
@@ -869,7 +911,7 @@ void draw_level(bool fill)
 		vdp_gcol(0, 7);
 		draw_path_segment( &level->paths[p] );
 		char str[6]; sprintf(str,"%d",p);
-		draw_path_segment_label( &level->paths[p], str, 7, 1 );
+		draw_path_segment_label( &level->paths[p], str, 7, 0 );
 	}
 	// value of box
 	vdp_write_at_graphics_cursor();
