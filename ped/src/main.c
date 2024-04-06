@@ -29,6 +29,25 @@ int gScreenHeight = 240;
 #define BD 4
 #define BL 8
 
+const char* KEY_STRING[16] = {
+	"-",	// 0 0000
+	"U",	// 1 0001
+	"R",	// 2 0010
+	"UR",	// 3 0011
+	"D",	// 4 0100
+	"UD",	// 5 0101
+	"RD",	// 6 0110
+	"URD",  // 7 0111
+	"L",	// 8 1000
+	"UL",	// 9 0001
+	"RL",	// A 0010
+	"URL",	// B 0011
+	"DL",	// C 0100
+	"UDL",	// D 0101
+	"RDL",	// E 0110
+	"URDL", // F 0111
+};
+
 #define SIGN(X) ( (X > 0) ? 1 : ((X < 0) ? -1 : 0) )
 
 //------------------------------------------------------------
@@ -104,6 +123,7 @@ void draw_path_segment( PathSegment *pps );
 bool is_at_position(Position *pposA, Position *pposB);
 void copy_position(Position *pFrom, Position *pTo);
 void fill_shape( int s );
+void print_level_data();
 
 Level* load_level(char *fname);
 bool save_level(char *name, Level *level);
@@ -358,7 +378,7 @@ int getNextDir(PathSegment *from, PathSegment *to)
 {
 	// work out direction key from seg to next
 	// case 1 - both horizontal
-	if ( from->horiz == to->horiz == true)
+	if ( from->horiz == true && to->horiz == true)
 	{
 		if (is_before(from, to, true)) 
 		{
@@ -368,7 +388,7 @@ int getNextDir(PathSegment *from, PathSegment *to)
 		}
 	} 
 	// case 2 - both vertical
-	if ( from->horiz == to->horiz == false)
+	if ( from->horiz == false && to->horiz == false)
 	{
 		if (is_before(from, to, false)) 
 		{
@@ -378,7 +398,7 @@ int getNextDir(PathSegment *from, PathSegment *to)
 		}
 	} 
 	// case 3 - from horizontal to vertical
-	if ( from->horiz )
+	if ( from->horiz == true && to->horiz == false )
 	{
 		if (is_before(from, to, false)) 
 		{
@@ -388,13 +408,13 @@ int getNextDir(PathSegment *from, PathSegment *to)
 		}
 	}
 	// case 4 - from vertical to horizontal
-	if ( from->horiz == false )
+	if ( from->horiz == false && to->horiz == true )
 	{
 		if (is_before(from, to, true)) 
 		{
-			return BITS_DOWN;
+			return BITS_RIGHT;
 		} else {
-			return BITS_UP;
+			return BITS_LEFT;
 		}
 	}
 	return 0;
@@ -493,6 +513,9 @@ void game_loop()
 				key_wait_ticks = clock() + key_wait;
 				clear_line(1);
 				TAB(0,1); printf("Debug:");
+				vdp_mode(0);
+				print_level_data();
+				vdp_mode(9);
 				draw_level_debug();
 				clear_line(1);
 				changed=true;
@@ -668,32 +691,48 @@ void game_loop()
 				key_wait_ticks = clock() + key_wait;
 				clear_line(1);
 				TAB(0,1);printf("Updating connections");
+				// clear current connections
+				for (int seg=0; seg < level->num_path_segments; seg++)
+				{
+					level->paths[seg].num_validA = 0;
+					level->paths[seg].num_validB = 0;
+					for (int i=0; i < 3; i++)
+					{
+						level->paths[seg].nextA[i].seg = 0;
+						level->paths[seg].nextA[i].key = 0;
+						level->paths[seg].nextB[i].seg = 0;
+						level->paths[seg].nextB[i].key = 0;
+					}
+				}
+				// find ends of each segment and get direction to move to get there
 				for (int seg=0; seg < level->num_path_segments; seg++)
 				{
 					PathSegment *pps = &level->paths[seg];
-					int endslist[10]; 
+					int endslistA[10] = {}; 
+					int endslistB[10] = {}; 
 					int endslist_count=0;
-					endslist_count = find_ends(pps->A, endslist);
-					pps->num_validA = endslist_count;
+					endslist_count = find_ends(pps->A, endslistA);
 					int ind=0;
 					for (int i=0; i < endslist_count; i++)
 					{
-						if (endslist[i] == seg) continue;
+						if (endslistA[i] == seg) continue;
 
-						pps->nextA[ind].seg = endslist[i];
-						pps->nextA[ind].key = getNextDir(pps, &level->paths[endslist[i]]);
+						pps->nextA[ind].seg = endslistA[i];
+						pps->nextA[ind].key = getNextDir(pps, &level->paths[endslistA[i]]);
 						ind++;
 					}
-					endslist_count = find_ends(level->paths[seg].B, endslist);
-					level->paths[seg].num_validB = endslist_count;
+					pps->num_validA = ind;
+					endslist_count = find_ends(pps->B, endslistB);
+					ind=0;
 					for (int i=0; i < endslist_count; i++)
 					{
-						if (endslist[i] == seg) continue;
+						if (endslistB[i] == seg) continue;
 
-						pps->nextB[ind].seg = endslist[i];
-						pps->nextB[ind].key = getNextDir(pps, &level->paths[endslist[i]]);
+						pps->nextB[ind].seg = endslistB[i];
+						pps->nextB[ind].key = getNextDir(pps, &level->paths[endslistB[i]]);
 						ind++;
 					}
+					pps->num_validB = ind;
 				}
 			}
 			TAB(23,1);printf("Done.");
@@ -774,7 +813,9 @@ void draw_path_segment( PathSegment *pps ) {
 	vdp_move_to( pps->A.x, pps->A.y );
 	vdp_line_to( pps->B.x, pps->B.y );
 }
-void draw_path_segment_label( PathSegment *pps, int n ) {
+// side 1 or -1
+void draw_path_segment_label( PathSegment *pps, char *str, int col, int offset ) {
+	vdp_write_at_graphics_cursor();
 	if (pps->horiz)
 	{
 		int texty;
@@ -787,9 +828,9 @@ void draw_path_segment_label( PathSegment *pps, int n ) {
 		int width = abs(pps->A.x - pps->B.x); 
 		if (pps->A.x>pps->B.x)
 		{
-			vdp_move_to( pps->B.x+(width/2), texty );
+			vdp_move_to( pps->B.x+(width/2)+offset*8, texty );
 		} else {
-			vdp_move_to( pps->A.x+(width/2), texty );
+			vdp_move_to( pps->A.x+(width/2)+offset*8, texty );
 		}
 	} else {
 		int textx;
@@ -802,17 +843,19 @@ void draw_path_segment_label( PathSegment *pps, int n ) {
 		int height = abs(pps->A.y - pps->B.y); 
 		if (pps->A.y>pps->B.y)
 		{
-			vdp_move_to( textx, pps->B.y+(height/2) );
+			vdp_move_to( textx, pps->B.y+(height/2)+offset*8 );
 		} else {
-			vdp_move_to( textx, pps->A.y+(height/2) );
+			vdp_move_to( textx, pps->A.y+(height/2)+offset*8 );
 		}
 	}
-	vdp_gcol(0, 8);
-	printf("%d",n);
+	vdp_gcol(0, col);
+	printf("%s",str);
+	vdp_write_at_text_cursor();
 }
 
 void draw_level(bool fill)
 {
+	// fill first
 	if (fill)
 	{
 		for ( int s=0; s < level->num_shapes; s++ )
@@ -820,13 +863,16 @@ void draw_level(bool fill)
 			fill_shape(s);
 		}
 	}
-	vdp_write_at_graphics_cursor();
+	// outline with a segment label
 	for (int p = 0; p < level->num_path_segments; p++)
 	{
 		vdp_gcol(0, 7);
 		draw_path_segment( &level->paths[p] );
-		draw_path_segment_label( &level->paths[p], p );
+		char str[6]; sprintf(str,"%d",p);
+		draw_path_segment_label( &level->paths[p], str, 7, 1 );
 	}
+	// value of box
+	vdp_write_at_graphics_cursor();
 	vdp_gcol(0,15);
 	for ( int s=0; s < level->num_shapes; s++ )
 	{
@@ -841,26 +887,36 @@ void draw_level(bool fill)
 
 void draw_level_debug()
 {
-	clear_drawing();
-	draw_level(false);
 	for (int p=0; p<level->num_path_segments; p++)
 	{
-		TAB(30,0);printf("seg:%d ",p);
+		clear_drawing();
+		draw_level(false);
+		TAB(25,0);COL(2);printf("A");COL(1);printf("-%d-",p);COL(3);printf("B");COL(15);
 		vdp_gcol(0,1);
 		draw_path_segment( &level->paths[p] );
 		//TAB(0,1+p);printf("%d: A %d,%d B %d,%d", p, 
 		//		paths[p].A.x, paths[p].A.y, paths[p].B.x, paths[p].B.y);
 		for (int n=0;n<3;n++)
 		{
+			PathSegment *pps;
 			if (level->paths[p].nextA[n].key>0)
 			{
 				vdp_gcol(0,2);
-				draw_path_segment( &level->paths[level->paths[p].nextA[n].seg] );
+				pps =  &level->paths[level->paths[p].nextA[n].seg];
+				char str[6];
+				sprintf(str,"%s",KEY_STRING[level->paths[p].nextA[n].key]);
+				draw_path_segment( pps );
+				draw_path_segment_label( pps, str, 2, -1 );
 			}
 			if (level->paths[p].nextB[n].key>0)
 			{
 				vdp_gcol(0,3);
-				draw_path_segment( &level->paths[level->paths[p].nextB[n].seg] );
+				pps =  &level->paths[level->paths[p].nextB[n].seg];
+				char str[6];
+				sprintf(str,"%s",KEY_STRING[level->paths[p].nextB[n].key]);
+				draw_path_segment( pps );
+				COL(3);
+				draw_path_segment_label( pps, str, 3, -1 );
 			}
 		}
 		TAB(8,1);printf("Press Any key");
@@ -868,6 +924,7 @@ void draw_level_debug()
 		TAB(8,1);printf("             ");
 		draw_level(false);
 	}
+	clear_drawing();
 	draw_level(true);
 }
 
@@ -948,6 +1005,13 @@ void print_level_data()
 			); byte += 3;
 	for (int i=0;i<level->num_path_segments;i++)
 	{
+		PathSegment *pps = &level->paths[i];
+		printf("s:%d A(%d,%d) B(%d,%d) %s va:%d na[%d %d %d] vb:%d nb[%d %d %d]\n",
+				i, pps->A.x, pps->A.y, pps->B.x, pps->B.y, 
+				pps->horiz?"H":"V",
+				pps->num_validA, pps->nextA[0].seg, pps->nextA[1].seg, pps->nextA[2].seg, 
+				pps->num_validB, pps->nextB[0].seg, pps->nextB[1].seg, pps->nextB[2].seg
+				);
 	/*
 	6 Position A;
 	6 Position B;
