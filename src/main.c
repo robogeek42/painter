@@ -108,16 +108,23 @@ int curr_path_seg = 0;
 clock_t key_wait_ticks;
 clock_t anim_ticks;
 clock_t enemy_ticks;
+clock_t bonus_countdown_ticks;
+
+int bonus_countdown_time = 5*100;
 
 int player_frame = 0;
 
 bool score_changed = true;
 int score = 0;
 int highscore = 0;
+int lives = 3;
 int frame = 1;
 int skill = 1;
-int bonus = 2600;
 int volume = 3; // 0-10
+
+bool is_exit = false;
+bool restart_level = false;
+bool end_game = false;
 
 int main_colour = 9;
 
@@ -142,7 +149,9 @@ void flash_screen(int repeat, int speed);
 void move_enemies();
 void play_beep();
 void play_wah_wah();
+void play_crash();
 Level* load_level(char *fname);
+void intro_screen1();
 
 void wait()
 {
@@ -174,19 +183,36 @@ int main(int argc, char *argv[])
 	load_images();
 	create_sprites();
 
-
 	levels[cl] = load_level("ped/level1.data");
 	if (levels[cl]==NULL)
 	{
 		printf("Failed to load level\n");
 		return 0;
 	}
-	curr_path_seg = 0;
 
 	vdp_audio_reset_channel( 0 );
 	vdp_audio_reset_channel( 1 );
 
-	game_loop();
+	intro_screen1();
+
+	bool play_again = false;
+	do {
+		game_loop();
+
+		if ( ! is_exit )
+		{
+			vdp_clear_screen();
+			COL(15);
+			char yorn = input_char(14,12,"Play again?");
+			if (yorn == 'y' || yorn == 'Y') 
+			{
+				play_again=true;
+				lives = 3;
+			}
+		}
+	} while(play_again);
+
+	printf("Goodbye!\n");
 
 	vdp_mode(0);
 	vdp_logical_scr_dims(true);
@@ -194,20 +220,15 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-void game_loop()
+void start_level()
 {
-	int exit=0;
-	
-	key_wait_ticks = clock();
-	anim_ticks = clock();
-	enemy_ticks = clock();
-
 	vdp_clear_screen();
 	vdp_activate_sprites( 2 ); //  have to reactivate sprites after a clear
 	draw_screen();
 	draw_map();
 	update_scores();
 
+	curr_path_seg = 0;
 	pos.x = levels[cl]->paths[curr_path_seg].A.x;
 	pos.y = levels[cl]->paths[curr_path_seg].A.y;
 	set_point( &pos );
@@ -233,6 +254,17 @@ void game_loop()
 	vdp_audio_reset_channel( 0 );
 	vdp_audio_set_waveform( 0, VDP_AUDIO_WAVEFORM_SINEWAVE);
 	play_beep();
+
+}
+
+void game_loop()
+{
+	key_wait_ticks = clock();
+	anim_ticks = clock();
+	enemy_ticks = clock();
+	bonus_countdown_ticks = clock() + bonus_countdown_time;
+
+	start_level();
 
 	do {
 		uint8_t dir=0;
@@ -263,7 +295,7 @@ void game_loop()
 			}
 
 
-			TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, levels[cl]->paths[curr_path_seg].count);
+			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, levels[cl]->paths[curr_path_seg].count);
 			if (score_changed) {
 				update_scores();
 			}
@@ -278,11 +310,19 @@ void game_loop()
 			}
 		}
 
+		if ( vdp_check_key_press( KEY_space ) )  // fire a gap
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+			}
+		}
+
 		if ( vdp_check_key_press( KEY_x ) ) // x - exit
 		{
 			TAB(0,1);printf("Are you sure?");
 			char k=getchar(); 
-			if (k=='y' || k=='Y') exit=1;
+			if (k=='y' || k=='Y') is_exit = true;
 			else 
 			{
 				TAB(0,1);printf("             ");
@@ -310,10 +350,33 @@ void game_loop()
 		{
 			enemy_ticks = clock() + enemy_speed;
 			move_enemies();
+
+			if ( restart_level )
+			{
+				free( levels[cl]->paths );
+				free( levels[cl]->shapes );
+				free( levels[cl] );
+				levels[cl] = load_level("ped/level1.data");
+				if (levels[cl]==NULL)
+				{
+					printf("Failed to load level\n");
+					is_exit = true;
+				}
+				restart_level = false;
+				char inp = input_char(12,14,"Oh Dear! READY?");
+				start_level();
+			}
 		}
 
+		if ( bonus_countdown_ticks < clock() )
+		{
+			bonus_countdown_ticks = clock() + bonus_countdown_time;
+			if ( levels[cl]->bonus > 0) levels[cl]->bonus -= 100;
+		}
+
+
 		vdp_update_key_state();
-	} while (exit==0);
+	} while (!is_exit && !end_game);
 
 }
 
@@ -367,12 +430,19 @@ void draw_screen()
 
 	vdp_set_text_colour(main_colour);
 	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BONUS");
+
+	TAB(17,3);printf("        ");
+	for (int i=0; i< lives; i++)
+	{
+		vdp_select_bitmap(0);
+		vdp_draw_bitmap(120+16*i,24);
+	}
 }
 void update_scores()
 {
 	vdp_set_text_colour(15);
 	TAB(9,2);printf("%d  ",score);TAB(29,2);printf("%d  ",highscore);
-	TAB(9,29);printf("%d",frame);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",bonus);
+	TAB(9,29);printf("%d",frame);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",levels[cl]->bonus);
 }
 
 void draw_path_segment( PathSegment *pps ) {
@@ -703,6 +773,7 @@ void check_shape_complete()
 	if (all_complete)
 	{
 		flash_screen(4, 25);
+		score += levels[cl]->bonus;
 	}
 }
 
@@ -816,6 +887,22 @@ void move_enemies()
 		vdp_select_sprite(en+1);
 		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
 		vdp_refresh_sprites();
+
+		// collision
+		if ( is_near( enemy_pos[en].x, pos.x, 7 ) &&
+			 is_near( enemy_pos[en].y, pos.y, 7 ) )
+		{ 
+			play_crash();
+			//flash_screen(8,30);
+			vdp_audio_frequency_envelope_disable( 2 );
+			vdp_audio_disable_channel( 2 );
+			lives--;
+			if ( lives == 0 )
+			{
+				end_game = true;
+			}
+			restart_level = true;
+		}
 	}
 }
 
@@ -852,6 +939,15 @@ void play_wah_wah()
 void stop_wah_wah()
 {
 	vdp_audio_reset_channel( 2 );
+	vdp_audio_set_waveform( 2,VDP_AUDIO_WAVEFORM_VICNOISE );
+	vdp_audio_play_note( 2, // channel
+		   				10*volume, // volume
+						73, // freq
+						2000 // duration
+						);
+}
+void play_crash()
+{
 }
 
 
@@ -892,5 +988,44 @@ Level* load_level(char *fname)
 	TAB(25,0);printf("OK             ");
 
 	return newlevel;
+}
+
+void intro_screen1()
+{
+ 	vdp_clear_screen();
+	vdp_gcol(0,11);
+	vdp_move_to(0,0);
+	vdp_filled_rect(319,39);
+
+	vdp_gcol(0,12);
+	vdp_move_to(96,8);
+	vdp_filled_rect(223,31);
+	COL(11);COL(140);TAB(13,2);printf("P A I N T E R");
+
+	COL(128);
+	COL(14);TAB(4,6); printf("Use your PAINTER to fill in the");
+	COL(14);TAB(2,7); printf("boxes by completing the lines around");
+	COL(14);TAB(2,8); printf("them.  You must fill in all the boxes");
+	COL(14);TAB(2,9); printf("ibefore the BONUS value reaches zero.");
+	COL(10);TAB(13,6); printf("PAINTER");
+	COL(13);TAB(14,9); printf("BONUS");
+
+	COL(13);TAB(4,11); printf("To avoid the CHASERS you may fire");
+	COL(13);TAB(2,12); printf("up to 3 temporary GAPS in the lines");
+	COL(13);TAB(2,13); printf("by pressing the ");COL(14);printf("SPACE BAR");
+	COL(11);TAB(17,11); printf("CHASERS");
+	COL(15);TAB(20,12); printf("GAPS");
+
+	COL(14);TAB(4,15); printf("The skill factor affects both the");
+	COL(14);TAB(2,16); printf("speed and intelligence of the chasers.");
+
+	COL(13);TAB(4,18); printf("You have 3 lives, with a bonus life");
+	COL(13);TAB(2,19); printf("if you reach a score of ");COL(15);printf("50000.");
+
+	COL(15);TAB(11,22); printf("Press SPACE to start");
+
+	wait();
+
+	COL(15);COL(128);
 }
 

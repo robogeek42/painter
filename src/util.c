@@ -364,3 +364,91 @@ uint24_t readPixelColour(volatile SYSVAR *sys_vars, int x, int y)
 	pixel = getsysvar_scrpixel();
 	return pixel;
 }
+
+void clear_line(int y)
+{
+	TAB(0,y);
+	for ( int i=0; i<40; i++ )
+	{
+		printf(" ");
+	}
+}
+int input_int(int x, int y, char *msg)
+{
+	int num;
+	TAB(x,y);
+	printf("%s:",msg);
+	scanf("%d",&num);
+	clear_line(y);
+	return num;
+}
+char input_char(int x, int y, char *msg)
+{
+	char buf[30];
+	TAB(x,y);
+	printf("%s:",msg);
+	scanf("%[^\n]s",buf);
+	clear_line(y);
+	return buf[0];
+}
+
+char * getline(void) {
+    char * line = malloc(100), * linep = line;
+    size_t lenmax = 100, len = lenmax;
+    int c;
+
+    if(line == NULL)
+        return NULL;
+
+    for(;;) {
+        c = fgetc(stdin);
+        if(c == EOF)
+            break;
+
+		if(c == 0x7F)
+		{
+			if (line > linep)
+			{
+				line--;
+				continue;
+			}
+		}
+
+        if(--len == 0) {
+            len = lenmax;
+            char * linen = realloc(linep, lenmax *= 2);
+
+            if(linen == NULL) {
+                free(linep);
+                return NULL;
+            }
+            line = linen + (line - linep);
+            linep = linen;
+        }
+
+        if((*line++ = c) == '\n')
+            break;
+    }
+    *line = '\0';
+    return linep;
+}
+void input_string(int x, int y, char *msg, char *input, unsigned int max)
+{
+	char *buffer;
+
+	TAB(x,y);
+	printf("%s:",msg);
+	buffer = getline();
+	if (strlen(buffer)>max)
+	{
+		strncpy(input, buffer, max);
+		input[max-1]=0;
+	}
+	else
+	{
+		strcpy(input, buffer);
+	}
+	free(buffer);
+	clear_line(y);
+}
+

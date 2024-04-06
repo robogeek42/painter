@@ -63,4 +63,11 @@ float cosLU(float angle);
 
 uint24_t readPixelColour(volatile SYSVAR *sys_vars, int x, int y);
 
+
+void clear_line(int y);
+int input_int(int x, int y, char *msg);
+char input_char(int x, int y, char *msg);
+char * getline(void);
+void input_string(int x, int y, char *msg, char *input, unsigned int max);
+
 #endif
