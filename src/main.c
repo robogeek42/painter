@@ -50,7 +50,6 @@ Position pos = {0,0};
 // Position of enemies
 #define MAX_NUM_ENEMIES 3
 Position enemy_pos[MAX_NUM_ENEMIES] = {};
-int num_enemies = 1;
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
 
@@ -98,7 +97,7 @@ typedef struct {
 	Shape *shapes;
 } Level;
 
-#define MAX_LEVELS 30
+#define MAX_LEVELS 2
 Level *levels[MAX_LEVELS] = {};
 int cl = 0; // current level
 
@@ -118,13 +117,13 @@ bool score_changed = true;
 int score = 0;
 int highscore = 0;
 int lives = 3;
-int frame = 1;
 int skill = 1;
-int volume = 3; // 0-10
+int volume = 6; // 0-10
 
 bool is_exit = false;
 bool restart_level = false;
 bool end_game = false;
+bool level_complete = false;
 
 int main_colour = 9;
 
@@ -150,7 +149,7 @@ void move_enemies();
 void play_beep();
 void play_wah_wah();
 void play_crash();
-Level* load_level(char *fname);
+Level* load_level(char *fname_pattern, int lnum);
 void intro_screen1();
 
 void wait()
@@ -180,15 +179,16 @@ int main(int argc, char *argv[])
 	vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong on emulator
 	//vdu_set_graphics_viewport()
 
-	load_images();
-	create_sprites();
-
-	levels[cl] = load_level("ped/level1.data");
+	TAB(17,11);printf("LOADING");
+	levels[cl] = load_level("ped/level%1d.data", cl+1);
 	if (levels[cl]==NULL)
 	{
 		printf("Failed to load level\n");
 		return 0;
 	}
+
+	load_images();
+	create_sprites();
 
 	vdp_audio_reset_channel( 0 );
 	vdp_audio_reset_channel( 1 );
@@ -222,6 +222,7 @@ int main(int argc, char *argv[])
 
 void start_level()
 {
+	COL(128);COL(15);
 	vdp_clear_screen();
 	vdp_activate_sprites( 2 ); //  have to reactivate sprites after a clear
 	draw_screen();
@@ -239,6 +240,11 @@ void start_level()
 	enemy_pos[0].y = levels[cl]->paths[enemy_curr_segment[0]].A.y;
 	enemy_dir[0] = BITS_LEFT;
 	
+	for (int s=0;s<=levels[cl]->num_enemies;s++)
+	{
+		vdp_select_sprite(s);
+		vdp_show_sprite();
+	}
 	vdp_select_sprite(1);
 	vdp_move_sprite_to(enemy_pos[0].x-4, enemy_pos[0].y-4);
 
@@ -264,6 +270,8 @@ void game_loop()
 	enemy_ticks = clock();
 	bonus_countdown_ticks = clock() + bonus_countdown_time;
 
+	cl = 0;
+	level_complete = false;
 	start_level();
 
 	do {
@@ -298,6 +306,27 @@ void game_loop()
 			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, levels[cl]->paths[curr_path_seg].count);
 			if (score_changed) {
 				update_scores();
+			}
+			if (level_complete)
+			{
+				free( levels[cl]->paths );
+				free( levels[cl]->shapes );
+				free( levels[cl] );
+				cl = MIN(MAX_LEVELS, cl + 1);
+
+				levels[cl] = load_level("ped/level%1d.data", cl+1);
+				if (levels[cl]==NULL)
+				{
+					printf("Failed to load level\n");
+					is_exit = true;
+				}
+				level_complete = false;
+				for (int s=0;s<=MAX_NUM_ENEMIES;s++)
+				{
+					vdp_select_sprite(s);
+					vdp_hide_sprite();
+				}
+				start_level();
 			}
 		}
 
@@ -338,7 +367,7 @@ void game_loop()
 			vdp_nth_sprite_frame( player_frame );
 			vdp_refresh_sprites();
 			// enemies
-			for (int en=0; en<1+num_enemies ;en++)
+			for (int en=0; en< 1 + levels[cl]->num_enemies ;en++)
 			{
 				vdp_select_sprite(en+1);
 				vdp_nth_sprite_frame( player_frame );
@@ -356,14 +385,22 @@ void game_loop()
 				free( levels[cl]->paths );
 				free( levels[cl]->shapes );
 				free( levels[cl] );
-				levels[cl] = load_level("ped/level1.data");
+				levels[cl] = load_level("ped/level%1d.data", cl+1);
 				if (levels[cl]==NULL)
 				{
 					printf("Failed to load level\n");
 					is_exit = true;
 				}
 				restart_level = false;
-				char inp = input_char(12,14,"Oh Dear! READY?");
+				for (int s=0;s<=MAX_NUM_ENEMIES;s++)
+				{
+					vdp_select_sprite(s);
+					vdp_hide_sprite();
+				}
+				vdp_move_to(80-2,96-2); vdp_gcol(0,12); vdp_filled_rect(232+2,132+2);
+				vdp_move_to(80,96); vdp_gcol(0,3); vdp_filled_rect(232,132);
+			    COL(12);COL(3+128); TAB(12,14); printf("Oh Dear! READY?");
+				wait();
 				start_level();
 			}
 		}
@@ -408,14 +445,7 @@ void create_sprites()
 	for (int sp=0;sp<MAX_NUM_ENEMIES;sp++)
 	{
 		vdp_select_sprite( 1+sp );
-		if (sp < num_enemies)
-		{
-			vdp_show_sprite();
-		}
-		else
-		{
-			vdp_hide_sprite();
-		}
+		vdp_hide_sprite();
 		vdp_refresh_sprites();
 	}
 
@@ -430,19 +460,20 @@ void draw_screen()
 
 	vdp_set_text_colour(main_colour);
 	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BONUS");
-
+	vdp_set_text_colour(15);
+	//TAB(20,2);printf("%d",lives);
 	TAB(17,3);printf("        ");
 	for (int i=0; i< lives; i++)
 	{
-		vdp_select_bitmap(0);
-		vdp_draw_bitmap(120+16*i,24);
+		vdp_adv_select_bitmap(0);
+		vdp_draw_bitmap(160-20+16*i,24);
 	}
 }
 void update_scores()
 {
 	vdp_set_text_colour(15);
 	TAB(9,2);printf("%d  ",score);TAB(29,2);printf("%d  ",highscore);
-	TAB(9,29);printf("%d",frame);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",levels[cl]->bonus);
+	TAB(9,29);printf("%d",cl+1);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",levels[cl]->bonus);
 }
 
 void draw_path_segment( PathSegment *pps ) {
@@ -774,6 +805,7 @@ void check_shape_complete()
 	{
 		flash_screen(4, 25);
 		score += levels[cl]->bonus;
+		level_complete = true;
 	}
 }
 
@@ -859,7 +891,7 @@ int direction_choice( int seg, bool at_A )
 
 void move_enemies()
 {
-	for (int en=0; en<num_enemies; en++)
+	for (int en=0; en<levels[cl]->num_enemies; en++)
 	{
 		PathSegment *pps = &levels[cl]->paths[enemy_curr_segment[en]];
 		//for debug printf below
@@ -893,8 +925,9 @@ void move_enemies()
 			 is_near( enemy_pos[en].y, pos.y, 7 ) )
 		{ 
 			play_crash();
-			//flash_screen(8,30);
+			flash_screen(2,30);
 			vdp_audio_frequency_envelope_disable( 2 );
+			vdp_audio_volume_envelope_disable( 2 );
 			vdp_audio_disable_channel( 2 );
 			lives--;
 			if ( lives == 0 )
@@ -939,26 +972,40 @@ void play_wah_wah()
 void stop_wah_wah()
 {
 	vdp_audio_reset_channel( 2 );
-	vdp_audio_set_waveform( 2,VDP_AUDIO_WAVEFORM_VICNOISE );
-	vdp_audio_play_note( 2, // channel
-		   				10*volume, // volume
-						73, // freq
-						2000 // duration
-						);
 }
 void play_crash()
 {
+	vdp_audio_reset_channel( 2 );
+	vdp_audio_set_waveform( 2,VDP_AUDIO_WAVEFORM_VICNOISE );
+	vdp_audio_volume_envelope_ADSR( 2,1,10,12*volume,40 );
+	vdp_audio_play_note( 2, // channel
+		   				20*volume, // volume
+						73, // freq
+						1000 // duration
+						);
 }
 
 
-Level* load_level(char *fname)
+Level* load_level(char *fname_pattern, int lnum)
 {
 	FILE *fp;
-	
-	if ( !(fp = fopen( fname, "rb" ) ) ) return NULL;
+
+	char fname[60] = {};
+	sprintf(fname, fname_pattern, lnum);
+
+	if ( !(fp = fopen( fname, "rb" ) ) ) {
+		printf("Err open %s\n",fname);
+		return NULL;
+	}
 
 	Level *newlevel = (Level*) calloc(1, sizeof(Level) );
+	if (newlevel==NULL)
+	{
+		return NULL;
+	}
 	
+	wait_clock(10);
+
 	int objs_read = fread( newlevel, sizeof(Level), 1, fp );
 	if ( objs_read != 1 || newlevel->version != SAVE_LEVEL_VERSION )
 	{

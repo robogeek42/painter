@@ -908,7 +908,7 @@ void draw_level(bool fill)
 	// outline with a segment label
 	for (int p = 0; p < level->num_path_segments; p++)
 	{
-		vdp_gcol(0, 7);
+		vdp_gcol(0, 8);
 		draw_path_segment( &level->paths[p] );
 		char str[6]; sprintf(str,"%d",p);
 		draw_path_segment_label( &level->paths[p], str, 7, 0 );
