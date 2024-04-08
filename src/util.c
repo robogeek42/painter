@@ -452,3 +452,63 @@ void input_string(int x, int y, char *msg, char *input, unsigned int max)
 	clear_line(y);
 }
 
+uint8_t wait_for_key(uint8_t key)
+{
+	bool pressed = false;
+	do 
+	{
+		bool pressed = vdp_check_key_press( key );
+
+		if ( pressed )
+		{
+			// wait so we don't register this press multiple times
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( key ) );
+		}
+		vdp_update_key_state();
+	} while ( !pressed );
+
+	return key;
+}
+
+uint8_t wait_for_key_with_exit(uint8_t key, uint8_t exit_key)
+{
+	bool exit_loop = false;
+	bool pressed = false;
+	do 
+	{
+		exit_loop = vdp_check_key_press( exit_key );
+
+		if ( exit_loop )
+		{
+			// wait so we don't register this press multiple times
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( exit_key ) );
+
+		}
+
+		pressed = vdp_check_key_press( key );
+
+		if ( pressed )
+		{
+			exit_loop = true;
+			
+			// wait so we don't register this press multiple times
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( key ) );
+		}
+
+		vdp_update_key_state();
+	} while ( !exit_loop );
+
+	if (pressed)
+	{
+		return key;
+	} else {
+		return 0;
+	}
+}
+

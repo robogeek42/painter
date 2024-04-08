@@ -130,7 +130,7 @@ int main_colour = 9;
 Position last_play_beep_pos;
 
 void wait();
-void game_loop();
+bool game_loop();
 void load_images();
 void create_sprites();
 void draw_map();
@@ -144,13 +144,14 @@ void copy_position(Position *pFrom, Position *pTo);
 void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, uint8_t dir, bool draw, int prox);
 void check_shape_complete();
 void fill_shape( int s, bool fast );
-void flash_screen(int repeat, int speed);
+bool flash_screen(int repeat, int speed);
 void move_enemies();
 void play_beep();
 void play_wah_wah();
 void play_crash();
 Level* load_level(char *fname_pattern, int lnum);
-void intro_screen1();
+bool intro_screen1();
+bool intro_screen2();
 
 void wait()
 {
@@ -180,7 +181,7 @@ int main(int argc, char *argv[])
 	//vdu_set_graphics_viewport()
 
 	TAB(17,11);printf("LOADING");
-	levels[cl] = load_level("ped/level%1d.data", cl+1);
+	levels[cl] = load_level("levels/level%1d.data", cl+1);
 	if (levels[cl]==NULL)
 	{
 		printf("Failed to load level\n");
@@ -193,26 +194,21 @@ int main(int argc, char *argv[])
 	vdp_audio_reset_channel( 0 );
 	vdp_audio_reset_channel( 1 );
 
-	intro_screen1();
-
-	bool play_again = false;
-	do {
-		game_loop();
-
-		if ( ! is_exit )
+	if ( intro_screen1() )
+	{
+		bool play_again = false;
+		do 
 		{
-			vdp_clear_screen();
-			COL(15);
-			char yorn = input_char(14,12,"Play again?");
-			if (yorn == 'y' || yorn == 'Y') 
+			play_again = intro_screen2();
+			lives = 3;
+			if ( play_again )
 			{
-				play_again=true;
-				lives = 3;
+				play_again = game_loop();
 			}
-		}
-	} while(play_again);
+		} while(play_again );
+	}
 
-	printf("Goodbye!\n");
+	TAB(0,26);COL(15);printf("Goodbye!\n");
 
 	vdp_mode(0);
 	vdp_logical_scr_dims(true);
@@ -252,7 +248,8 @@ void start_level()
 
 	// wah-wah plays on channel 2
 	play_wah_wah();
-	flash_screen(10,30);
+	if ( !flash_screen(10,30) ) is_exit = true;
+		
 	vdp_audio_frequency_envelope_disable( 2 );
 	vdp_audio_disable_channel( 2 );
 
@@ -263,7 +260,7 @@ void start_level()
 
 }
 
-void game_loop()
+bool game_loop()
 {
 	key_wait_ticks = clock();
 	anim_ticks = clock();
@@ -274,7 +271,8 @@ void game_loop()
 	level_complete = false;
 	start_level();
 
-	do {
+	do 
+	{
 		uint8_t dir=0;
 
 		// player movement key presses
@@ -400,7 +398,10 @@ void game_loop()
 				vdp_move_to(80-2,96-2); vdp_gcol(0,12); vdp_filled_rect(232+2,132+2);
 				vdp_move_to(80,96); vdp_gcol(0,3); vdp_filled_rect(232,132);
 			    COL(12);COL(3+128); TAB(12,14); printf("Oh Dear! READY?");
-				wait();
+				if ( wait_for_key(KEY_x) == KEY_x )
+				{
+					is_exit = true;	
+				}
 				start_level();
 			}
 		}
@@ -414,6 +415,17 @@ void game_loop()
 
 		vdp_update_key_state();
 	} while (!is_exit && !end_game);
+
+	for (int chan=0;chan<3;chan++)
+	{
+		vdp_audio_frequency_envelope_disable( chan );
+		vdp_audio_volume_envelope_disable( chan );
+		vdp_audio_disable_channel( chan );
+	}
+
+	if ( is_exit && !end_game ) return false;
+
+	return true;
 
 }
 
@@ -842,12 +854,13 @@ void fill_shape( int s, bool fast )
 	}
 }
 
-void flash_screen(int repeat, int speed)
+bool flash_screen(int repeat, int speed)
 {
 	clock_t ticks;
 
 	bool flash_on = true;
-	for (int rep=0; rep<repeat; rep++)
+	bool ret = true;
+	for (int rep=0; rep<repeat && ret; rep++)
 	{
 		//vdp_define_colour( 0, flash_on?15:0, 255, 0, 255 );
 		int col = flash_on? 0b00101010 :0;
@@ -855,11 +868,17 @@ void flash_screen(int repeat, int speed)
 		ticks = clock()+speed;
 		while (ticks > clock())
 		{
+			if ( vdp_check_key_press( KEY_x ) )
+			{
+				ret = false;
+			}
 			vdp_update_key_state();
 		}
 		flash_on = !flash_on;
 	}
 	vdp_define_colour( 0, 0, 0, 0, 0 );
+
+	return ret;
 }
 
 #define DIR_OPP(d) ((d+2)%4)
@@ -1034,10 +1053,48 @@ Level* load_level(char *fname_pattern, int lnum)
 	}
 	TAB(25,0);printf("OK             ");
 
+	switch (lnum)
+	{
+		case 0:
+			break;
+		case 1: 
+			newlevel->bonus = 2000; 
+			break;
+		case 2: 
+			newlevel->bonus = 2600; 
+			break;
+		case 3: 
+			newlevel->bonus = 3000; 
+			break;
+		case 4: 
+		case 5: 
+			newlevel->bonus = 4000; 
+			newlevel->num_enemies = 2;
+			break;
+		default: 
+			newlevel->bonus = 5000; 
+			newlevel->num_enemies = 3;
+			break;
+	}
+
 	return newlevel;
 }
 
-void intro_screen1()
+#if 0
+int curr_print_fcol = 15;
+int curr_print_bcol = 0;
+void PRINT(int X, int Y, int fcol, int bcol, char *str)
+{
+	TAB(X,Y);
+	if (bcol != curr_print_bcol)
+	{
+		curr_print_bcol = bcol;
+	}
+}
+#endif
+
+
+bool intro_screen1()
 {
  	vdp_clear_screen();
 	vdp_gcol(0,11);
@@ -1045,34 +1102,56 @@ void intro_screen1()
 	vdp_filled_rect(319,39);
 
 	vdp_gcol(0,12);
-	vdp_move_to(96,8);
+	vdp_move_to(104,8);
 	vdp_filled_rect(223,31);
-	COL(11);COL(140);TAB(13,2);printf("P A I N T E R");
+	COL(11);COL(140);TAB(14,2);printf("P A I N T E R");
+	COL(13);COL(139);TAB(4,2);printf("AGON");TAB(32,2);printf("AGON");
 
 	COL(128);
-	COL(14);TAB(4,6); printf("Use your PAINTER to fill in the");
-	COL(14);TAB(2,7); printf("boxes by completing the lines around");
-	COL(14);TAB(2,8); printf("them.  You must fill in all the boxes");
-	COL(14);TAB(2,9); printf("ibefore the BONUS value reaches zero.");
-	COL(10);TAB(13,6); printf("PAINTER");
-	COL(13);TAB(14,9); printf("BONUS");
+	COL(14);TAB(4,6);printf("Use your");COL(10);printf(" PAINTER ");COL(14);printf("to fill in the");
+	COL(14);TAB(2,7);printf("boxes by completing the lines around");
+	COL(14);TAB(2,8);printf("them.  You must fill in all the boxes");
+	COL(14);TAB(2,9);printf("before the");COL(13);printf(" BONUS ");COL(14);printf("value reaches zero.");
 
-	COL(13);TAB(4,11); printf("To avoid the CHASERS you may fire");
-	COL(13);TAB(2,12); printf("up to 3 temporary GAPS in the lines");
-	COL(13);TAB(2,13); printf("by pressing the ");COL(14);printf("SPACE BAR");
-	COL(11);TAB(17,11); printf("CHASERS");
-	COL(15);TAB(20,12); printf("GAPS");
+	COL(13);TAB(4,12);printf("To avoid the");COL(11);printf(" CHASERS ");COL(13);printf("you may fire");
+	COL(13);TAB(2,13);printf("up to 3 temporary ");COL(15);printf("GAPS ");COL(13);printf("in the lines");
+	COL(13);TAB(2,14);printf("by pressing the ");COL(14);printf("SPACE BAR");
 
-	COL(14);TAB(4,15); printf("The skill factor affects both the");
-	COL(14);TAB(2,16); printf("speed and intelligence of the chasers.");
+	COL(14);TAB(4,17);printf("The skill factor affects both the");
+	COL(14);TAB(2,18);printf("speed and intelligence of the chasers.");
 
-	COL(13);TAB(4,18); printf("You have 3 lives, with a bonus life");
-	COL(13);TAB(2,19); printf("if you reach a score of ");COL(15);printf("50000.");
+	COL(13);TAB(4,21);printf("You have 3 lives, with a bonus life");
+	COL(13);TAB(2,22);printf("if you reach a score of ");COL(15);printf("50000.");
 
-	COL(15);TAB(11,22); printf("Press SPACE to start");
-
-	wait();
+	COL(15);TAB(11,25);printf("Press SPACE to continue");
 
 	COL(15);COL(128);
+
+	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_x);
+	if (key_pressed == 0) return false;
+	return true;
 }
 
+bool intro_screen2()
+{
+ 	vdp_clear_screen();
+	vdp_gcol(0,11);
+	vdp_move_to(0,0);
+	vdp_filled_rect(319,39);
+
+	vdp_gcol(0,12);
+	vdp_move_to(104,8);
+	vdp_filled_rect(223,31);
+	COL(11);COL(140);TAB(14,2);printf("P A I N T E R");
+	COL(13);COL(139);TAB(4,2);printf("AGON");TAB(32,2);printf("AGON");
+
+	COL(13);COL(139);TAB(8,2);printf("  Skill Level  ");
+	COL(128);
+	COL(14);TAB(6,25);printf("Press");COL(15);printf(" SPACE BAR ");COL(14);printf("to start game");
+
+	COL(15);COL(128);
+	
+	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_x);
+	if (key_pressed == 0) return false;
+	return true;
+}
