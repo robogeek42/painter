@@ -156,10 +156,26 @@ bool intro_screen2();
 void wait()
 {
 	char k=getchar();
-	if (k=='q') exit(0);
+	if (k=='q' || k=='x') exit(0);
 }
 
 static volatile SYSVAR *sys_vars = NULL;
+
+void print_box_prompt(char *str, int fg, int bg)
+{
+	int len = strlen(str);
+	int width = 8*(len+4);
+	int height = 8*3;
+
+	draw_filled_box_centre(160, 120, width+4, height+4,bg, fg);
+	draw_filled_box_centre(160, 120, width, height,fg, bg);
+
+	vdp_write_at_graphics_cursor();
+	COL(fg);COL(128+bg); 
+	vdp_move_to(160 - (8*len/2), 120-4);
+	printf("%s",str);
+	vdp_write_at_text_cursor();
+}
 
 int main(int argc, char *argv[])
 {
@@ -324,6 +340,13 @@ bool game_loop()
 					vdp_select_sprite(s);
 					vdp_hide_sprite();
 				}
+
+				vdp_clear_screen();
+				draw_screen();
+				draw_map();
+
+				print_box_prompt("READY?",12,11);
+				wait();
 				start_level();
 			}
 		}
@@ -395,13 +418,8 @@ bool game_loop()
 					vdp_select_sprite(s);
 					vdp_hide_sprite();
 				}
-				vdp_move_to(80-2,96-2); vdp_gcol(0,12); vdp_filled_rect(232+2,132+2);
-				vdp_move_to(80,96); vdp_gcol(0,3); vdp_filled_rect(232,132);
-			    COL(12);COL(3+128); TAB(12,14); printf("Oh Dear! READY?");
-				if ( wait_for_key(KEY_x) == KEY_x )
-				{
-					is_exit = true;	
-				}
+				print_box_prompt("Oh Dear! READY?",12,11);
+				wait_for_any_key();
 				start_level();
 			}
 		}
@@ -1145,8 +1163,9 @@ bool intro_screen2()
 	COL(11);COL(140);TAB(14,2);printf("P A I N T E R");
 	COL(13);COL(139);TAB(4,2);printf("AGON");TAB(32,2);printf("AGON");
 
-	COL(13);COL(139);TAB(8,2);printf("  Skill Level  ");
+	COL(13);COL(139);TAB(13,12);printf("  Skill Level  ");
 	COL(128);
+	COL(15);TAB(20,14);printf("%d", skill);
 	COL(14);TAB(6,25);printf("Press");COL(15);printf(" SPACE BAR ");COL(14);printf("to start game");
 
 	COL(15);COL(128);

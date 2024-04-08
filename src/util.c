@@ -454,20 +454,19 @@ void input_string(int x, int y, char *msg, char *input, unsigned int max)
 
 uint8_t wait_for_key(uint8_t key)
 {
-	bool pressed = false;
+	bool exit_loop = false;
 	do 
 	{
-		bool pressed = vdp_check_key_press( key );
-
-		if ( pressed )
+		if ( vdp_check_key_press( key ) )
 		{
+			exit_loop = true;
 			// wait so we don't register this press multiple times
 			do {
 				vdp_update_key_state();
 			} while ( vdp_check_key_press( key ) );
 		}
 		vdp_update_key_state();
-	} while ( !pressed );
+	} while ( !exit_loop );
 
 	return key;
 }
@@ -510,5 +509,10 @@ uint8_t wait_for_key_with_exit(uint8_t key, uint8_t exit_key)
 	} else {
 		return 0;
 	}
+}
+
+void wait_for_any_key()
+{
+	getchar();
 }
 
