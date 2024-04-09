@@ -134,6 +134,7 @@ Position last_play_beep_pos;
 void wait();
 void start_level();
 bool start_new_level();
+bool reload_level();
 bool game_loop();
 void load_images();
 void create_sprites();
@@ -156,6 +157,8 @@ void play_crash();
 Level* load_level(char *fname_pattern, int lnum);
 bool intro_screen1();
 bool intro_screen2();
+void disable_sound_channels();
+void setup_sound_channels();
 
 void wait()
 {
@@ -179,6 +182,7 @@ void print_box_prompt(char *str, int fg, int bg)
 	vdp_move_to(160 - (8*len/2), 120-4);
 	printf("%s",str);
 	vdp_write_at_text_cursor();
+	COL(128);
 }
 
 bool sound_on = true;
@@ -214,11 +218,9 @@ int main(int argc, char *argv[])
 	load_images();
 	create_sprites();
 
-
 	if (sound_on)
 	{
-		vdp_audio_reset_channel( 0 );
-		vdp_audio_reset_channel( 1 );
+		setup_sound_channels();
 	}
 
 	if ( intro_screen1() )
@@ -231,6 +233,12 @@ int main(int argc, char *argv[])
 			if ( play_again )
 			{
 				play_again = game_loop();
+
+				end_game = false;
+				is_exit = false;
+				winner = false;
+				cl = 0;
+				if ( ! reload_level() ) exit(-1);
 			}
 		} while(play_again );
 	}
@@ -282,11 +290,6 @@ void start_level()
 		
 	if (sound_on)
 	{
-		vdp_audio_reset_channel( 2 );
-
-		// beep on channel 0
-		vdp_audio_reset_channel( 0 );
-		vdp_audio_set_waveform( 0, VDP_AUDIO_WAVEFORM_SINEWAVE);
 		play_beep();
 	}
 
@@ -294,17 +297,20 @@ void start_level()
 
 bool start_new_level()
 {
-	free( level->paths );
-	free( level->shapes );
-	free( level );
-
-	cl++;
-	if ( cl == MAX_LEVELS )
+	if ( (cl+1) == MAX_LEVELS )
 	{
 		is_exit = true;
 		winner = true;
 		return false;
 	}
+
+	// free old level data
+	free( level->paths );
+	free( level->shapes );
+	free( level );
+
+	// next level
+	cl++;
 
 	level = load_level("ped/level%1d.data", cl+1);
 	if (level==NULL)
@@ -328,6 +334,27 @@ bool start_new_level()
 	print_box_prompt("READY?",12,11);
 	wait();
 	start_level();
+	return true;
+}
+
+bool reload_level()
+{
+	free( level->paths );
+	free( level->shapes );
+	free( level );
+	level = NULL;
+	level = load_level("ped/level%1d.data", cl+1);
+	if (level==NULL)
+	{
+		printf("Failed to load level\n");
+		is_exit = true;
+		return false;
+	}
+	for (int s=0;s<=MAX_NUM_ENEMIES;s++)
+	{
+		vdp_select_sprite(s);
+		vdp_hide_sprite();
+	}
 	return true;
 }
 
@@ -391,6 +418,29 @@ bool game_loop()
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
+
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_space ) );
+			}
+		}
+
+		if ( vdp_check_key_press( KEY_s ) )  // Sound enable/disable
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+
+				if (sound_on)
+				{
+					disable_sound_channels();
+					sound_on = false;
+				} else {
+					setup_sound_channels();
+					sound_on = true;
+				}
+				draw_screen();
+
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_s ) );
+						 
 			}
 		}
 
@@ -429,26 +479,18 @@ bool game_loop()
 
 			if ( restart_level )
 			{
-				free( level->paths );
-				free( level->shapes );
-				free( level );
-				level = NULL;
-				level = load_level("ped/level%1d.data", cl+1);
-				if (level==NULL)
-				{
-					printf("Failed to load level\n");
-					is_exit = true;
-				}
 				restart_level = false;
-				for (int s=0;s<=MAX_NUM_ENEMIES;s++)
-				{
-					vdp_select_sprite(s);
-					vdp_hide_sprite();
-				}
+				if ( ! reload_level() ) exit(-1);
 				print_box_prompt("Oh Dear! READY?",12,11);
 				wait_for_any_key();
 				start_level();
 			}
+			if ( end_game )
+			{
+				print_box_prompt("  You Lose  ",9,11);
+				wait();
+			}
+
 		}
 
 		if ( bonus_countdown_ticks < clock() )
@@ -464,17 +506,12 @@ bool game_loop()
 	
 	if (sound_on)
 	{
-		for (int chan=0;chan<3;chan++)
-		{
-			vdp_audio_frequency_envelope_disable( chan );
-			vdp_audio_volume_envelope_disable( chan );
-			vdp_audio_disable_channel( chan );
-		}
+		disable_sound_channels();
 	}
 
 	if ( winner )
 	{
-		print_box_prompt("  YOU WIN!!!  ",9,11);
+		print_box_prompt("  YOU WIN!!!  ",10,11);
 		wait();
 	}
 
@@ -523,6 +560,13 @@ void draw_screen()
 	TAB(7,0);printf("SCORE");TAB(27,0);printf("HIGH");
 	vdp_set_text_colour(15);
 	TAB(17,1);printf("PAINTER");
+	if (sound_on)
+	{
+		TAB(39,1);COL(10);printf("S");
+	} else {
+		TAB(39,1);COL(8);printf("s");
+	}
+
 
 	vdp_set_text_colour(main_colour);
 	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BONUS");
@@ -890,11 +934,6 @@ void fill_shape( int s, bool fast )
 		vdp_filled_rect( pshape->BotRight.x-1, pshape->BotRight.y-1 );
 	} else {
 		// slow fill
-		if (sound_on)
-		{
-			vdp_audio_reset_channel( 1 );
-			vdp_audio_set_waveform( 1, VDP_AUDIO_WAVEFORM_VICNOISE);
-		}
 		int slice_width = MAX(1, (x2-x1)/50);
 		for (int x=x1+1; x<x2; x+=slice_width)
 		{
@@ -1007,19 +1046,16 @@ void move_enemies()
 			{
 				play_crash();
 			}
+
 			flash_screen(2,30);
-			if (sound_on)
-			{
-				vdp_audio_frequency_envelope_disable( 2 );
-				vdp_audio_volume_envelope_disable( 2 );
-				vdp_audio_disable_channel( 2 );
-			}
+
 			lives--;
 			if ( lives == 0 )
 			{
 				end_game = true;
+			} else {
+				restart_level = true;
 			}
-			restart_level = true;
 		}
 	}
 }
@@ -1031,23 +1067,6 @@ void play_beep()
 
 void play_wah_wah()
 {
-	vdp_audio_reset_channel( 2 );
-	vdp_audio_set_waveform( 2,VDP_AUDIO_WAVEFORM_SQUARE );
-
-	vdp_audio_frequency_envelope_stepped( 
-			2,  // channel
-			2,  // number of steps
-			VDP_AUDIO_FREQ_ENVELOPE_CONTROL_REPEATS,
-			10  // step length
-	);
-	uint16_t words[4] = {
-		2,   // phase 1: freq adjustment
-		18,  // phase 1: in x steps
-		-2,  // phase 2: freq adjustment
-		18   // phase 2: in x steps
-	};
-	mos_puts( (char *)words, sizeof(words), 0 );
-
 	vdp_audio_play_note( 2, // channel
 		   				10*volume, // volume
 						73, // freq
@@ -1057,10 +1076,7 @@ void play_wah_wah()
 
 void play_crash()
 {
-	vdp_audio_reset_channel( 2 );
-	vdp_audio_set_waveform( 2,VDP_AUDIO_WAVEFORM_VICNOISE );
-	vdp_audio_volume_envelope_ADSR( 2,1,10,12*volume,40 );
-	vdp_audio_play_note( 2, // channel
+	vdp_audio_play_note( 3, // channel
 		   				20*volume, // volume
 						73, // freq
 						1000 // duration
@@ -1218,4 +1234,49 @@ bool intro_screen2()
 	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_x);
 	if (key_pressed == 0) return false;
 	return true;
+}
+
+void setup_sound_channels()
+{
+	// channel 0 SINEWAVE for beep
+	vdp_audio_enable_channel( 0 );
+	vdp_audio_reset_channel( 0 );
+	vdp_audio_set_waveform( 0, VDP_AUDIO_WAVEFORM_SINEWAVE);
+
+	// channel 1 VICNOISE - fill noise
+	vdp_audio_enable_channel( 1 );
+	vdp_audio_reset_channel( 1 );
+	vdp_audio_set_waveform( 1, VDP_AUDIO_WAVEFORM_VICNOISE);
+	
+	// channel 2 SQUARE - WahWah
+	vdp_audio_enable_channel( 2 );
+	vdp_audio_reset_channel( 2 );
+	vdp_audio_frequency_envelope_stepped( 
+			2,  // channel
+			2,  // number of steps
+			VDP_AUDIO_FREQ_ENVELOPE_CONTROL_REPEATS,
+			10  // step length
+	);
+	uint16_t words[4] = {
+		2,   // phase 1: freq adjustment
+		18,  // phase 1: in x steps
+		-2,  // phase 2: freq adjustment
+		18   // phase 2: in x steps
+	};
+	mos_puts( (char *)words, sizeof(words), 0 );
+	
+	// channel 3 VICNOISE - crash
+	vdp_audio_enable_channel( 3 );
+	vdp_audio_reset_channel( 3 );
+	vdp_audio_set_waveform( 3, VDP_AUDIO_WAVEFORM_VICNOISE);
+	vdp_audio_volume_envelope_ADSR( 3, 1, 10, (12*volume)&0xFF, 40 );
+}
+
+void disable_sound_channels()
+{
+	for (int i=0 ; i<4; i++)
+	{
+		vdp_audio_reset_channel( i );
+		vdp_audio_disable_channel( i );
+	}
 }
