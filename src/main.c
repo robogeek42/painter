@@ -98,7 +98,8 @@ typedef struct {
 } Level;
 
 #define MAX_LEVELS 2
-Level *levels[MAX_LEVELS] = {};
+Level *level = NULL;
+
 int cl = 0; // current level
 
 int curr_path_seg = 0;
@@ -124,12 +125,15 @@ bool is_exit = false;
 bool restart_level = false;
 bool end_game = false;
 bool level_complete = false;
+bool winner = false;
 
 int main_colour = 9;
 
 Position last_play_beep_pos;
 
 void wait();
+void start_level();
+bool start_new_level();
 bool game_loop();
 void load_images();
 void create_sprites();
@@ -177,6 +181,8 @@ void print_box_prompt(char *str, int fg, int bg)
 	vdp_write_at_text_cursor();
 }
 
+bool sound_on = true;
+
 int main(int argc, char *argv[])
 {
 	sys_vars = vdp_vdu_init();
@@ -185,10 +191,11 @@ int main(int argc, char *argv[])
 
 	if (argc > 1)
 	{
-		key_wait=atoi(argv[1]);
+		int anum = atoi(argv[1]);
+		if (anum == 0) sound_on = false;
 	}
-	int seed = 1234;
-	srand(seed);
+
+	srand(clock());
 
 	// setup complete
 	vdp_mode(gMode);
@@ -197,8 +204,8 @@ int main(int argc, char *argv[])
 	//vdu_set_graphics_viewport()
 
 	TAB(17,11);printf("LOADING");
-	levels[cl] = load_level("levels/level%1d.data", cl+1);
-	if (levels[cl]==NULL)
+	level = load_level("levels/level%1d.data", cl+1);
+	if (level == NULL)
 	{
 		printf("Failed to load level\n");
 		return 0;
@@ -207,8 +214,12 @@ int main(int argc, char *argv[])
 	load_images();
 	create_sprites();
 
-	vdp_audio_reset_channel( 0 );
-	vdp_audio_reset_channel( 1 );
+
+	if (sound_on)
+	{
+		vdp_audio_reset_channel( 0 );
+		vdp_audio_reset_channel( 1 );
+	}
 
 	if ( intro_screen1() )
 	{
@@ -242,17 +253,17 @@ void start_level()
 	update_scores();
 
 	curr_path_seg = 0;
-	pos.x = levels[cl]->paths[curr_path_seg].A.x;
-	pos.y = levels[cl]->paths[curr_path_seg].A.y;
+	pos.x = level->paths[curr_path_seg].A.x;
+	pos.y = level->paths[curr_path_seg].A.y;
 	set_point( &pos );
 	copy_position(&pos, &last_play_beep_pos);
 
 	enemy_curr_segment[0] = 3;
-	enemy_pos[0].x = levels[cl]->paths[enemy_curr_segment[0]].A.x;
-	enemy_pos[0].y = levels[cl]->paths[enemy_curr_segment[0]].A.y;
+	enemy_pos[0].x = level->paths[enemy_curr_segment[0]].A.x;
+	enemy_pos[0].y = level->paths[enemy_curr_segment[0]].A.y;
 	enemy_dir[0] = BITS_LEFT;
 	
-	for (int s=0;s<=levels[cl]->num_enemies;s++)
+	for (int s=0;s<=level->num_enemies;s++)
 	{
 		vdp_select_sprite(s);
 		vdp_show_sprite();
@@ -262,18 +273,62 @@ void start_level()
 
 	vdp_refresh_sprites();
 
-	// wah-wah plays on channel 2
-	play_wah_wah();
+	if (sound_on)
+	{
+		// wah-wah plays on channel 2
+		play_wah_wah();
+	}
 	if ( !flash_screen(10,30) ) is_exit = true;
 		
-	vdp_audio_frequency_envelope_disable( 2 );
-	vdp_audio_disable_channel( 2 );
+	if (sound_on)
+	{
+		vdp_audio_reset_channel( 2 );
 
-	// beep on channel 0
-	vdp_audio_reset_channel( 0 );
-	vdp_audio_set_waveform( 0, VDP_AUDIO_WAVEFORM_SINEWAVE);
-	play_beep();
+		// beep on channel 0
+		vdp_audio_reset_channel( 0 );
+		vdp_audio_set_waveform( 0, VDP_AUDIO_WAVEFORM_SINEWAVE);
+		play_beep();
+	}
 
+}
+
+bool start_new_level()
+{
+	free( level->paths );
+	free( level->shapes );
+	free( level );
+
+	cl++;
+	if ( cl == MAX_LEVELS )
+	{
+		is_exit = true;
+		winner = true;
+		return false;
+	}
+
+	level = load_level("ped/level%1d.data", cl+1);
+	if (level==NULL)
+	{
+		printf("Failed to load level\n");
+		is_exit = true;
+		return false;
+	}
+	level_complete = false;
+	for (int s=0;s<=MAX_NUM_ENEMIES;s++)
+	{
+		vdp_select_sprite(s);
+		vdp_hide_sprite();
+	}
+
+	vdp_clear_screen();
+	draw_screen();
+	draw_map();
+	update_scores();
+
+	print_box_prompt("READY?",12,11);
+	wait();
+	start_level();
+	return true;
 }
 
 bool game_loop()
@@ -302,61 +357,32 @@ bool game_loop()
 		{
 			key_wait_ticks = clock() + key_wait;
 
-			move_along_path_segment(&levels[cl]->paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
+			move_along_path_segment(&level->paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
 			vdp_select_sprite(0);
 			vdp_move_sprite_to(pos.x-4, pos.y-4);
 			vdp_refresh_sprites();
-			if ( is_at_position( &pos, &levels[cl]->paths[ curr_path_seg ].A ) ||
-			     is_at_position( &pos, &levels[cl]->paths[ curr_path_seg ].B ) )
+			if ( is_at_position( &pos, &level->paths[ curr_path_seg ].A ) ||
+			     is_at_position( &pos, &level->paths[ curr_path_seg ].B ) )
 			{
 				if (! is_at_position(&pos, &last_play_beep_pos)) 
 				{
-					play_beep();
+					if (sound_on)
+					{
+						play_beep();
+					}
 					copy_position(&pos, &last_play_beep_pos);
 				}
 			}
 
 
-			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, levels[cl]->paths[curr_path_seg].count);
+			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, level->paths[curr_path_seg].count);
 			if (score_changed) {
 				update_scores();
 			}
+
 			if (level_complete)
 			{
-				free( levels[cl]->paths );
-				free( levels[cl]->shapes );
-				free( levels[cl] );
-				cl = MIN(MAX_LEVELS, cl + 1);
-
-				levels[cl] = load_level("ped/level%1d.data", cl+1);
-				if (levels[cl]==NULL)
-				{
-					printf("Failed to load level\n");
-					is_exit = true;
-				}
-				level_complete = false;
-				for (int s=0;s<=MAX_NUM_ENEMIES;s++)
-				{
-					vdp_select_sprite(s);
-					vdp_hide_sprite();
-				}
-
-				vdp_clear_screen();
-				draw_screen();
-				draw_map();
-
-				print_box_prompt("READY?",12,11);
-				wait();
-				start_level();
-			}
-		}
-
-		if ( vdp_check_key_press( KEY_backtick ) )  // ' - toggle debug
-		{
-			if (key_wait_ticks < clock()) 
-			{
-				key_wait_ticks = clock() + key_wait;
-				draw_map_debug();
+				start_new_level();
 			}
 		}
 
@@ -388,7 +414,7 @@ bool game_loop()
 			vdp_nth_sprite_frame( player_frame );
 			vdp_refresh_sprites();
 			// enemies
-			for (int en=0; en< 1 + levels[cl]->num_enemies ;en++)
+			for (int en=0; en< 1 + level->num_enemies ;en++)
 			{
 				vdp_select_sprite(en+1);
 				vdp_nth_sprite_frame( player_frame );
@@ -403,11 +429,12 @@ bool game_loop()
 
 			if ( restart_level )
 			{
-				free( levels[cl]->paths );
-				free( levels[cl]->shapes );
-				free( levels[cl] );
-				levels[cl] = load_level("ped/level%1d.data", cl+1);
-				if (levels[cl]==NULL)
+				free( level->paths );
+				free( level->shapes );
+				free( level );
+				level = NULL;
+				level = load_level("ped/level%1d.data", cl+1);
+				if (level==NULL)
 				{
 					printf("Failed to load level\n");
 					is_exit = true;
@@ -427,18 +454,28 @@ bool game_loop()
 		if ( bonus_countdown_ticks < clock() )
 		{
 			bonus_countdown_ticks = clock() + bonus_countdown_time;
-			if ( levels[cl]->bonus > 0) levels[cl]->bonus -= 100;
+			if ( level->bonus > 0) level->bonus -= 100;
 		}
 
 
 		vdp_update_key_state();
 	} while (!is_exit && !end_game);
 
-	for (int chan=0;chan<3;chan++)
+	
+	if (sound_on)
 	{
-		vdp_audio_frequency_envelope_disable( chan );
-		vdp_audio_volume_envelope_disable( chan );
-		vdp_audio_disable_channel( chan );
+		for (int chan=0;chan<3;chan++)
+		{
+			vdp_audio_frequency_envelope_disable( chan );
+			vdp_audio_volume_envelope_disable( chan );
+			vdp_audio_disable_channel( chan );
+		}
+	}
+
+	if ( winner )
+	{
+		print_box_prompt("  YOU WIN!!!  ",9,11);
+		wait();
 	}
 
 	if ( is_exit && !end_game ) return false;
@@ -478,7 +515,6 @@ void create_sprites()
 		vdp_hide_sprite();
 		vdp_refresh_sprites();
 	}
-
 }
 
 void draw_screen()
@@ -503,7 +539,7 @@ void update_scores()
 {
 	vdp_set_text_colour(15);
 	TAB(9,2);printf("%d  ",score);TAB(29,2);printf("%d  ",highscore);
-	TAB(9,29);printf("%d",cl+1);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",levels[cl]->bonus);
+	TAB(9,29);printf("%d",cl+1);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",level->bonus);
 }
 
 void draw_path_segment( PathSegment *pps ) {
@@ -514,15 +550,15 @@ void draw_path_segment( PathSegment *pps ) {
 void draw_map()
 {
 	vdp_gcol(0, 8);
-	for (int p = 0; p < levels[cl]->num_path_segments; p++)
+	for (int p = 0; p < level->num_path_segments; p++)
 	{
-		draw_path_segment( &levels[cl]->paths[p] );
+		draw_path_segment( &level->paths[p] );
 	}
 	vdp_write_at_graphics_cursor();
 	vdp_gcol(0,15);
-	for ( int s=0; s < levels[cl]->num_shapes; s++ )
+	for ( int s=0; s < level->num_shapes; s++ )
 	{
-		Shape *pshape = &levels[cl]->shapes[s];
+		Shape *pshape = &level->shapes[s];
 		int w = pshape->BotRight.x - pshape->TopLeft.x;
 		int h = pshape->BotRight.y - pshape->TopLeft.y;
 		vdp_move_to( pshape->TopLeft.x + (w/2) - 12, pshape->TopLeft.y + (h/2) - 4);
@@ -535,9 +571,9 @@ void draw_map()
 void draw_map_debug()
 {
 	draw_map();
-	for (int p=0; p<levels[cl]->num_path_segments; p++)
+	for (int p=0; p<level->num_path_segments; p++)
 	{
-		PathSegment *pps = &levels[cl]->paths[p];
+		PathSegment *pps = &level->paths[p];
 		vdp_gcol(0,1);
 		draw_path_segment( pps );
 		//TAB(0,1+p);printf("%d: A %d,%d B %d,%d", p, 
@@ -547,12 +583,12 @@ void draw_map_debug()
 			if (pps->nextA[n].key>0)
 			{
 				vdp_gcol(0,2);
-				draw_path_segment( &levels[cl]->paths[pps->nextA[n].seg] );
+				draw_path_segment( &level->paths[pps->nextA[n].seg] );
 			}
 			if (pps->nextB[n].key>0)
 			{
 				vdp_gcol(0,3);
-				draw_path_segment( &levels[cl]->paths[pps->nextB[n].seg] );
+				draw_path_segment( &level->paths[pps->nextB[n].seg] );
 			}
 		}
 		wait();
@@ -599,7 +635,7 @@ void set_point( Position *ppos )
 	// we haven't visted yet
 	if ( col == 0x555555 )
 	{
-		PathSegment *pps = &levels[cl]->paths[curr_path_seg];
+		PathSegment *pps = &level->paths[curr_path_seg];
 
 		// reduce count in this line segment
 		if (pps->count>0)
@@ -613,10 +649,10 @@ void set_point( Position *ppos )
 				{
 					if ( pps->nextA[n].key > 0 )
 					{
-						if ( levels[cl]->paths[ pps->nextA[n].seg ].count > 0)
+						if ( level->paths[ pps->nextA[n].seg ].count > 0)
 						{
-							levels[cl]->paths[ pps->nextA[n].seg ].count--;
-							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  pps->nextA[n].seg, levels[cl]->paths[ pps->nextA[n].seg ].count);
+							level->paths[ pps->nextA[n].seg ].count--;
+							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  pps->nextA[n].seg, level->paths[ pps->nextA[n].seg ].count);
 						}
 					}
 				}
@@ -628,10 +664,10 @@ void set_point( Position *ppos )
 				{
 					if ( pps->nextB[n].key > 0 )
 					{
-						if ( levels[cl]->paths[ pps->nextB[n].seg ].count > 0)
+						if ( level->paths[ pps->nextB[n].seg ].count > 0)
 						{
-							levels[cl]->paths[ pps->nextB[n].seg ].count--;
-							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  pps->nextB[n].seg, levels[cl]->paths[ pps->nextB[n].seg ].count);
+							level->paths[ pps->nextB[n].seg ].count--;
+							//printf("reduce %d -> %d to %d  \n",curr_path_seg,  pps->nextB[n].seg, level->paths[ pps->nextB[n].seg ].count);
 						}
 					}
 				}
@@ -675,7 +711,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextA[i].key > 0 && (dir & pps->nextA[i].key ) )
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( levels[cl]->paths[pps->nextA[i].seg].horiz )
+				if ( level->paths[pps->nextA[i].seg].horiz )
 				{
 					if ( ppos->x == pps->A.x )
 					{
@@ -701,7 +737,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextB[i].key > 0 && (dir & pps->nextB[i].key ))
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( levels[cl]->paths[pps->nextB[i].seg].horiz )
+				if ( level->paths[pps->nextB[i].seg].horiz )
 				{
 					if ( ppos->x == pps->B.x )
 					{
@@ -749,7 +785,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextA[i].key > 0 && (dir & pps->nextA[i].key ) )
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( !levels[cl]->paths[pps->nextA[i].seg].horiz )
+				if ( !level->paths[pps->nextA[i].seg].horiz )
 				{
 					if ( ppos->y == pps->A.y )
 					{
@@ -775,7 +811,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 			if ( pps->nextB[i].key > 0 && (dir & pps->nextB[i].key ))
 			{
 				// only move to next segment along the same direction if it is exactly at the end
-				if ( !levels[cl]->paths[pps->nextB[i].seg].horiz )
+				if ( !level->paths[pps->nextB[i].seg].horiz )
 				{
 					if ( ppos->y == pps->B.y )
 					{
@@ -805,16 +841,16 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 void check_shape_complete()
 {
 	bool all_complete = true;
-	for (int s=0; s < levels[cl]->num_shapes; s++)
+	for (int s=0; s < level->num_shapes; s++)
 	{
-		Shape *pshape = &levels[cl]->shapes[s];
+		Shape *pshape = &level->shapes[s];
 		bool shape_complete = pshape->complete;
 		if (!shape_complete)
 		{
 			int incomplete = pshape->num_segments;
 			for (int seg=0; seg < pshape->num_segments; seg++)
 			{
-				if ( levels[cl]->paths[ pshape->segments[seg] ].count <= 0 )
+				if ( level->paths[ pshape->segments[seg] ].count <= 0 )
 				{
 					pshape->seg_complete[seg] = true;
 					incomplete--;
@@ -834,15 +870,15 @@ void check_shape_complete()
 	if (all_complete)
 	{
 		flash_screen(4, 25);
-		score += levels[cl]->bonus;
+		score += level->bonus;
 		level_complete = true;
 	}
 }
 
 void fill_shape( int s, bool fast )
 {
-	Shape *pshape = &levels[cl]->shapes[s];
-	vdp_gcol(0, levels[cl]->colour_fill);
+	Shape *pshape = &level->shapes[s];
+	vdp_gcol(0, level->colour_fill);
 	int x1 = pshape->TopLeft.x;
 	int y1 = pshape->TopLeft.y;
 	int x2 = pshape->BotRight.x;
@@ -854,16 +890,22 @@ void fill_shape( int s, bool fast )
 		vdp_filled_rect( pshape->BotRight.x-1, pshape->BotRight.y-1 );
 	} else {
 		// slow fill
-		vdp_audio_reset_channel( 1 );
-		vdp_audio_set_waveform( 1, VDP_AUDIO_WAVEFORM_VICNOISE);
+		if (sound_on)
+		{
+			vdp_audio_reset_channel( 1 );
+			vdp_audio_set_waveform( 1, VDP_AUDIO_WAVEFORM_VICNOISE);
+		}
 		int slice_width = MAX(1, (x2-x1)/50);
 		for (int x=x1+1; x<x2; x+=slice_width)
 		{
 			vdp_move_to( x, y1+1 );
 			vdp_filled_rect( MIN(x+slice_width, x2-2), y2-1 );
 
-			// fill noise on channel 1
-			vdp_audio_play_note( 1, 10*volume, 10+(x-x1)/3, 20);
+			if (sound_on)
+			{
+				// fill noise on channel 1
+				vdp_audio_play_note( 1, 10*volume, 10+(x-x1)/3, 20);
+			}
 			clock_t ticks=clock()+1;
 			while (ticks > clock()) {
 				vdp_update_key_state();
@@ -904,7 +946,7 @@ bool flash_screen(int repeat, int speed)
 int direction_choice( int seg, bool at_A )
 {
 	int dir = 0;
-	PathSegment *pps = &levels[cl]->paths[seg];
+	PathSegment *pps = &level->paths[seg];
 	if ( pps->horiz )
 	{
 		if ( pps->A.x > pps->B.x )
@@ -928,9 +970,9 @@ int direction_choice( int seg, bool at_A )
 
 void move_enemies()
 {
-	for (int en=0; en<levels[cl]->num_enemies; en++)
+	for (int en=0; en<level->num_enemies; en++)
 	{
-		PathSegment *pps = &levels[cl]->paths[enemy_curr_segment[en]];
+		PathSegment *pps = &level->paths[enemy_curr_segment[en]];
 		//for debug printf below
 		//int old_seg = enemy_curr_segment[en];
 		//int old_dir = enemy_dir[en];
@@ -961,11 +1003,17 @@ void move_enemies()
 		if ( is_near( enemy_pos[en].x, pos.x, 7 ) &&
 			 is_near( enemy_pos[en].y, pos.y, 7 ) )
 		{ 
-			play_crash();
+			if (sound_on)
+			{
+				play_crash();
+			}
 			flash_screen(2,30);
-			vdp_audio_frequency_envelope_disable( 2 );
-			vdp_audio_volume_envelope_disable( 2 );
-			vdp_audio_disable_channel( 2 );
+			if (sound_on)
+			{
+				vdp_audio_frequency_envelope_disable( 2 );
+				vdp_audio_volume_envelope_disable( 2 );
+				vdp_audio_disable_channel( 2 );
+			}
 			lives--;
 			if ( lives == 0 )
 			{
@@ -1006,10 +1054,7 @@ void play_wah_wah()
 						2600 // duration
 						);
 }
-void stop_wah_wah()
-{
-	vdp_audio_reset_channel( 2 );
-}
+
 void play_crash()
 {
 	vdp_audio_reset_channel( 2 );
