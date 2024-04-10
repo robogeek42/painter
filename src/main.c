@@ -99,7 +99,7 @@ typedef struct {
 	Shape *shapes;
 } Level;
 
-#define MAX_LEVELS 2
+#define MAX_LEVELS 3
 Level *level = NULL;
 
 int cl = 0; // current level
@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 	{
 		int anum = atoi(argv[1]);
-		if (anum == 0) sound_on = false;
+		if (anum >0 && anum <= MAX_LEVELS) cl = anum-1;
 	}
 
 	srand(clock());
@@ -294,6 +294,7 @@ void start_level()
 
 bool start_new_level()
 {
+	update_scores();
 	if ( (cl+1) == MAX_LEVELS )
 	{
 		is_exit = true;
@@ -362,7 +363,6 @@ bool game_loop()
 	enemy_ticks = clock();
 	bonus_countdown_ticks = clock() + bonus_countdown_time;
 
-	cl = 0;
 	level_complete = false;
 	start_level();
 
@@ -534,9 +534,11 @@ void load_images()
 	}
 	for (int fn=1; fn<=4; fn++)
 	{
-		sprintf(fname, "img/ball%02d.rgb2", fn);
+		sprintf(fname, "img/ball_yb_%02d.rgb2", fn);
 		load_bitmap_file(fname, 8, 8, 4 + fn-1);
+		sprintf(fname, "img/ball_yo_%02d.rgb2", fn);
 		load_bitmap_file(fname, 8, 8, 8 + fn-1);
+		sprintf(fname, "img/ball_yg_%02d.rgb2", fn);
 		load_bitmap_file(fname, 8, 8, 12 + fn-1);
 	}
 }
@@ -913,6 +915,7 @@ void check_shape_complete()
 				 pshape->complete = true;
 				 fill_shape( s, false );
 				 score += pshape->value;
+				 update_scores();
 			}
 			else
 			{
@@ -1154,12 +1157,15 @@ Level* load_level(char *fname_pattern, int lnum)
 			newlevel->bonus = 2600; 
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
+			enemy_start_segment[1] = 29;
+			enemy_start_segment[2] = 23;
 			break;
 		case 3: 
 			newlevel->bonus = 3000; 
-			newlevel->num_enemies = 2;
+			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
-			enemy_start_segment[1] = 7;
+			enemy_start_segment[1] = 33;
+			enemy_start_segment[2] = 36;
 			break;
 		case 4: 
 		case 5: 
@@ -1167,6 +1173,7 @@ Level* load_level(char *fname_pattern, int lnum)
 			newlevel->num_enemies = 2;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 7;
+			enemy_start_segment[2] = 11;
 			break;
 		default: 
 			newlevel->bonus = 5000; 

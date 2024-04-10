@@ -854,6 +854,12 @@ void draw_screen()
 void draw_path_segment( PathSegment *pps ) {
 	vdp_move_to( pps->A.x, pps->A.y );
 	vdp_line_to( pps->B.x, pps->B.y );
+
+	vdp_move_to( pps->A.x-1, pps->A.y-1 );
+	vdp_filled_rect( pps->A.x+1, pps->A.y+1 );
+
+	vdp_move_to( pps->B.x-1, pps->B.y-1 );
+	vdp_filled_rect( pps->B.x+1, pps->B.y+1 );
 }
 // side 1 or -1
 void draw_path_segment_label( PathSegment *pps, char *str, int col, int offset ) {
