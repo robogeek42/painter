@@ -513,6 +513,19 @@ uint8_t wait_for_key_with_exit(uint8_t key, uint8_t exit_key)
 
 void wait_for_any_key()
 {
-	getchar();
+	do 
+	{
+		vdp_update_key_state();
+	} while(key_pressed_code == 0);
+}
+
+bool wait_for_any_key_with_exit(uint8_t exit_key)
+{
+	do 
+	{
+		vdp_update_key_state();
+	} while(key_pressed_code == 0);
+	if ( key_pressed_code == exit_key) return false;
+	return true;
 }
 

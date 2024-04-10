@@ -52,6 +52,8 @@ Position pos = {0,0};
 Position enemy_pos[MAX_NUM_ENEMIES] = {};
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
+int enemy_start_segment[MAX_NUM_ENEMIES];
+int enemy_chase_percent = 0;
 
 typedef struct {
 	int key; // Key that can move in that direction
@@ -131,7 +133,6 @@ int main_colour = 9;
 
 Position last_play_beep_pos;
 
-void wait();
 void start_level();
 bool start_new_level();
 bool reload_level();
@@ -159,12 +160,6 @@ bool intro_screen1();
 bool intro_screen2();
 void disable_sound_channels();
 void setup_sound_channels();
-
-void wait()
-{
-	char k=getchar();
-	if (k=='q' || k=='x') exit(0);
-}
 
 static volatile SYSVAR *sys_vars = NULL;
 
@@ -255,7 +250,7 @@ void start_level()
 {
 	COL(128);COL(15);
 	vdp_clear_screen();
-	vdp_activate_sprites( 2 ); //  have to reactivate sprites after a clear
+	vdp_activate_sprites( level->num_enemies+1 ); //  have to reactivate sprites after a clear
 	draw_screen();
 	draw_map();
 	update_scores();
@@ -266,18 +261,20 @@ void start_level()
 	set_point( &pos );
 	copy_position(&pos, &last_play_beep_pos);
 
-	enemy_curr_segment[0] = 3;
-	enemy_pos[0].x = level->paths[enemy_curr_segment[0]].A.x;
-	enemy_pos[0].y = level->paths[enemy_curr_segment[0]].A.y;
-	enemy_dir[0] = BITS_LEFT;
-	
-	for (int s=0;s<=level->num_enemies;s++)
+	vdp_select_sprite(0);
+	vdp_show_sprite();
+
+	for (int en=0; en < level->num_enemies; en++)
 	{
-		vdp_select_sprite(s);
+		enemy_curr_segment[en] = enemy_start_segment[en];
+		enemy_pos[en].x = level->paths[enemy_curr_segment[en]].A.x;
+		enemy_pos[en].y = level->paths[enemy_curr_segment[en]].A.y;
+		enemy_dir[en] = BITS_LEFT|BITS_DOWN;
+	
+		vdp_select_sprite(en+1);
 		vdp_show_sprite();
+		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
 	}
-	vdp_select_sprite(1);
-	vdp_move_sprite_to(enemy_pos[0].x-4, enemy_pos[0].y-4);
 
 	vdp_refresh_sprites();
 
@@ -332,7 +329,7 @@ bool start_new_level()
 	update_scores();
 
 	print_box_prompt("READY?",12,11);
-	wait();
+	if (!wait_for_any_key_with_exit(KEY_x)) return false;
 	start_level();
 	return true;
 }
@@ -482,13 +479,19 @@ bool game_loop()
 				restart_level = false;
 				if ( ! reload_level() ) exit(-1);
 				print_box_prompt("Oh Dear! READY?",12,11);
-				wait_for_any_key();
-				start_level();
+				if (!wait_for_any_key_with_exit(KEY_x)) 
+				{
+					is_exit = true;
+				}
+				else
+				{
+					start_level();
+				}
 			}
 			if ( end_game )
 			{
 				print_box_prompt("  You Lose  ",9,11);
-				wait();
+				if (!wait_for_any_key_with_exit(KEY_x)) is_exit = true;
 			}
 
 		}
@@ -512,7 +515,7 @@ bool game_loop()
 	if ( winner )
 	{
 		print_box_prompt("  YOU WIN!!!  ",10,11);
-		wait();
+		wait_for_any_key();
 	}
 
 	if ( is_exit && !end_game ) return false;
@@ -533,15 +536,21 @@ void load_images()
 	{
 		sprintf(fname, "img/ball%02d.rgb2", fn);
 		load_bitmap_file(fname, 8, 8, 4 + fn-1);
+		load_bitmap_file(fname, 8, 8, 8 + fn-1);
+		load_bitmap_file(fname, 8, 8, 12 + fn-1);
 	}
 }
 
 void create_sprites() 
 {
 	vdp_adv_create_sprite( 0, 0, 4 );
-	vdp_adv_create_sprite( 1, 4, 4 );
 
-	vdp_activate_sprites( 2 );
+	for (int sp=0;sp<MAX_NUM_ENEMIES;sp++)
+	{
+		vdp_adv_create_sprite( sp+1, 4+sp*4, 4 );
+	}
+
+	vdp_activate_sprites( 1+MAX_NUM_ENEMIES );
 
 	vdp_select_sprite( 0 );
 	vdp_show_sprite();
@@ -635,7 +644,7 @@ void draw_map_debug()
 				draw_path_segment( &level->paths[pps->nextB[n].seg] );
 			}
 		}
-		wait();
+		wait_for_any_key();
 		vdp_clear_screen();
 		vdp_activate_sprites( 1 ); //  have to reactivate sprites after a clear
 		draw_map();
@@ -1138,21 +1147,33 @@ Level* load_level(char *fname_pattern, int lnum)
 			break;
 		case 1: 
 			newlevel->bonus = 2000; 
+			newlevel->num_enemies = 1;
+			enemy_start_segment[0] = 3;
 			break;
 		case 2: 
 			newlevel->bonus = 2600; 
+			newlevel->num_enemies = 1;
+			enemy_start_segment[0] = 3;
 			break;
 		case 3: 
 			newlevel->bonus = 3000; 
+			newlevel->num_enemies = 2;
+			enemy_start_segment[0] = 3;
+			enemy_start_segment[1] = 7;
 			break;
 		case 4: 
 		case 5: 
 			newlevel->bonus = 4000; 
 			newlevel->num_enemies = 2;
+			enemy_start_segment[0] = 3;
+			enemy_start_segment[1] = 7;
 			break;
 		default: 
 			newlevel->bonus = 5000; 
 			newlevel->num_enemies = 3;
+			enemy_start_segment[0] = 3;
+			enemy_start_segment[1] = 7;
+			enemy_start_segment[2] = 11;
 			break;
 	}
 
@@ -1223,6 +1244,9 @@ bool intro_screen2()
 	vdp_filled_rect(223,31);
 	COL(11);COL(140);TAB(14,2);printf("P A I N T E R");
 	COL(13);COL(139);TAB(4,2);printf("AGON");TAB(32,2);printf("AGON");
+
+	COL(128);
+	COL(14);TAB(11,6);printf("Toggle");COL(10);printf(" SOUND ");COL(14);printf("with");COL(10);printf(" S");
 
 	COL(13);COL(139);TAB(13,12);printf("  Skill Level  ");
 	COL(128);

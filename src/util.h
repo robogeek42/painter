@@ -73,6 +73,7 @@ void input_string(int x, int y, char *msg, char *input, unsigned int max);
 uint8_t wait_for_key(uint8_t key);
 uint8_t wait_for_key_with_exit(uint8_t key, uint8_t exit_key);
 void wait_for_any_key();
+bool wait_for_any_key_with_exit(uint8_t exit_key);
 
 
 #endif
