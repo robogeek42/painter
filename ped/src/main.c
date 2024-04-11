@@ -620,6 +620,39 @@ void game_loop()
 			}
 		}
 
+		if ( vdp_check_key_press( KEY_m ) )  // modify all values
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				clear_line(1);
+				char horv = input_char(0,1,"Horiz or Vert");
+				clear_line(1);
+				int val  = input_int(0,1,"Enter value to change");
+				clear_line(1);
+				int newval  = input_int(0,1,"Enter new value");
+				
+				for (int seg=0; seg < level->num_path_segments; seg++)
+				{
+					if ( horv == 'v' || horv == 'V' )
+					{
+						if ( level->paths[seg].A.x == val ) level->paths[seg].A.x = newval; 
+						if ( level->paths[seg].B.x == val ) level->paths[seg].B.x = newval; 
+					}
+
+					if ( horv == 'h' || horv == 'H' )
+					{
+						if ( level->paths[seg].A.y == val ) level->paths[seg].A.y = newval; 
+						if ( level->paths[seg].B.y == val ) level->paths[seg].B.y = newval; 
+					}
+				}
+				for (int sh=0; sh < level->num_shapes; sh++)
+				{
+					recalc_shape(sh);
+				}
+				changed=true;
+			}
+		}
 		if ( vdp_check_key_press( KEY_delete ) )  // delete most recent segment only
 		{
 			if (key_wait_ticks < clock()) 
@@ -844,11 +877,12 @@ void draw_screen()
 	TAB(18,0);printf("%d",sizeof(Level));
 
 	print_key(0,29,"","D","ebug");
-	print_key(6,29,"","h/v/P", "ath");
-	print_key(15,29,"","S","hape");
-	print_key(21,29,"","C","onnect");
-	print_key(29,29,"","F","ile");
-	print_key(34,29,"c","O","l");
+	print_key(6,29,"","hvP", "ath");
+	print_key(13,29,"","S","hape");
+	print_key(19,29,"","C","onnect");
+	print_key(27,29,"","F","ile");
+	print_key(32,29,"c","O","l");
+	print_key(36,29,"","M","od");
 }
 
 void draw_path_segment( PathSegment *pps ) {
