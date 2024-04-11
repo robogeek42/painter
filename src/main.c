@@ -1047,7 +1047,7 @@ void move_enemies()
 {
 	for (int en=0; en<level->num_enemies; en++)
 	{
-		bool bStuck = false;
+		//bool bStuck = false;
 		PathSegment *pps = &level->paths[enemy_curr_segment[en]];
 		//for debug printf below
 		//int old_seg = enemy_curr_segment[en];
@@ -1055,32 +1055,30 @@ void move_enemies()
 
 		move_along_path_segment(pps, &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
 
-		if ( enemy_pos[en].x == enemy_pos_old[en].x && enemy_pos[en].y == enemy_pos_old[en].y )
-		{
+		//if ( enemy_pos[en].x == enemy_pos_old[en].x && enemy_pos[en].y == enemy_pos_old[en].y )
+		//{
 			//TAB(0,1);printf("Stuck: (%d,%d)",enemy_pos[en].x,enemy_pos[en].y);
-			bStuck = true;
-		}
+		//	bStuck = true;
+		//}
 		// choose a new segment
 		if ( is_at_position( &enemy_pos[en], &pps->A ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validA );
-			int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
+			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
+			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
 
-			int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
-
-			enemy_curr_segment[en] = pps->nextA[chosen_seg_num].seg;
-			enemy_dir[en] = pps->nextA[chosen_seg_num].key;
+			enemy_curr_segment[en] = pps->nextA[rand_seg_num].seg;
+			enemy_dir[en] = pps->nextA[rand_seg_num].key;
 			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		if ( is_at_position( &enemy_pos[en], &pps->B ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validB );
-			int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
+			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
+			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
 
-			int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
-
-			enemy_dir[en] = pps->nextB[chosen_seg_num].key;
-			enemy_curr_segment[en] = pps->nextB[chosen_seg_num].seg;
+			enemy_dir[en] = pps->nextB[rand_seg_num].key;
+			enemy_curr_segment[en] = pps->nextB[rand_seg_num].seg;
 			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		//TAB(0,2);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
