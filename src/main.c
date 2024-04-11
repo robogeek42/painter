@@ -50,10 +50,11 @@ Position pos = {0,0};
 // Position of enemies
 #define MAX_NUM_ENEMIES 3
 Position enemy_pos[MAX_NUM_ENEMIES] = {};
+Position enemy_pos_old[MAX_NUM_ENEMIES] = {};
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
 int enemy_start_segment[MAX_NUM_ENEMIES];
-int enemy_chase_percent = 0;
+int enemy_chase_percent = 50;
 
 typedef struct {
 	int key; // Key that can move in that direction
@@ -99,7 +100,7 @@ typedef struct {
 	Shape *shapes;
 } Level;
 
-#define MAX_LEVELS 3
+#define MAX_LEVELS 4
 Level *level = NULL;
 
 int cl = 0; // current level
@@ -269,6 +270,8 @@ void start_level()
 		enemy_curr_segment[en] = enemy_start_segment[en];
 		enemy_pos[en].x = level->paths[enemy_curr_segment[en]].A.x;
 		enemy_pos[en].y = level->paths[enemy_curr_segment[en]].A.y;
+		enemy_pos_old[en].x = level->paths[enemy_curr_segment[en]].A.x;
+		enemy_pos_old[en].y = level->paths[enemy_curr_segment[en]].A.y;
 		enemy_dir[en] = BITS_LEFT|BITS_DOWN;
 	
 		vdp_select_sprite(en+1);
@@ -962,6 +965,9 @@ void fill_shape( int s, bool fast )
 				vdp_update_key_state();
 			};
 		}
+		// fill full shape to fill edge issue
+		vdp_move_to( pshape->TopLeft.x+1, pshape->TopLeft.y+1 );
+		vdp_filled_rect( pshape->BotRight.x-1, pshape->BotRight.y-1 );
 	}
 }
 
@@ -1019,10 +1025,29 @@ int direction_choice( int seg, bool at_A )
 	return dir;
 }
 
+int get_best_seg( Position *enpos, int num_valid, ValidNext *next )
+{
+	int best = 0;
+	int dir = 0;
+	if ( pos.x < enpos->x ) dir = BITS_LEFT;
+	if ( pos.x > enpos->x ) dir = BITS_RIGHT;
+	if ( pos.y < enpos->y ) dir = BITS_UP;
+	if ( pos.y > enpos->y ) dir = BITS_DOWN;
+	for (int n = 0; n < num_valid; n++)
+	{
+		if ( (next[n].key & dir) > 0 ) 
+		{
+			best = n;
+			break;
+		}
+	}
+	return best;
+}
 void move_enemies()
 {
 	for (int en=0; en<level->num_enemies; en++)
 	{
+		bool bStuck = false;
 		PathSegment *pps = &level->paths[enemy_curr_segment[en]];
 		//for debug printf below
 		//int old_seg = enemy_curr_segment[en];
@@ -1030,22 +1055,36 @@ void move_enemies()
 
 		move_along_path_segment(pps, &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
 
+		if ( enemy_pos[en].x == enemy_pos_old[en].x && enemy_pos[en].y == enemy_pos_old[en].y )
+		{
+			//TAB(0,1);printf("Stuck: (%d,%d)",enemy_pos[en].x,enemy_pos[en].y);
+			bStuck = true;
+		}
 		// choose a new segment
 		if ( is_at_position( &enemy_pos[en], &pps->A ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validA );
-			enemy_curr_segment[en] = pps->nextA[rand_seg_num].seg;
-			enemy_dir[en] = pps->nextA[rand_seg_num].key;
+			int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
+
+			int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
+
+			enemy_curr_segment[en] = pps->nextA[chosen_seg_num].seg;
+			enemy_dir[en] = pps->nextA[chosen_seg_num].key;
 			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		if ( is_at_position( &enemy_pos[en], &pps->B ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validB );
-			enemy_dir[en] = pps->nextB[rand_seg_num].key;
-			enemy_curr_segment[en] = pps->nextB[rand_seg_num].seg;
+			int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
+
+			int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
+
+			enemy_dir[en] = pps->nextB[chosen_seg_num].key;
+			enemy_curr_segment[en] = pps->nextB[chosen_seg_num].seg;
 			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		//TAB(0,2);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
+
 		vdp_select_sprite(en+1);
 		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
 		vdp_refresh_sprites();
@@ -1069,6 +1108,7 @@ void move_enemies()
 				restart_level = true;
 			}
 		}
+		copy_position( &enemy_pos[en],  &enemy_pos_old[en] );
 	}
 }
 
