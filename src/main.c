@@ -54,7 +54,7 @@ Position enemy_pos_old[MAX_NUM_ENEMIES] = {};
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
 int enemy_start_segment[MAX_NUM_ENEMIES];
-int enemy_chase_percent = 50;
+int enemy_chase_percent = 0;
 
 typedef struct {
 	int key; // Key that can move in that direction
