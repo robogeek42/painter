@@ -57,8 +57,8 @@ int enemy_start_segment[MAX_NUM_ENEMIES];
 int enemy_chase_percent = 0;
 
 typedef struct {
-	int key; // Key that can move in that direction
-	int seg; // A valid segment in that direction
+	int dir; // direction of this segment from the current path end-node
+	int seg; // A valid segment leading from the current path end-node
 } ValidNext;
 
 typedef struct {
@@ -638,12 +638,12 @@ void draw_map_debug()
 		//		pps->A.x, pps->A.y, pps->B.x, pps->B.y);
 		for (int n=0;n<3;n++)
 		{
-			if (pps->nextA[n].key>0)
+			if (pps->nextA[n].dir>0)
 			{
 				vdp_gcol(0,2);
 				draw_path_segment( &level->paths[pps->nextA[n].seg] );
 			}
-			if (pps->nextB[n].key>0)
+			if (pps->nextB[n].dir>0)
 			{
 				vdp_gcol(0,3);
 				draw_path_segment( &level->paths[pps->nextB[n].seg] );
@@ -705,7 +705,7 @@ void set_point( Position *ppos )
 				//printf("at end A of %d  \n", curr_path_seg);
 				for (int n=0; n<3; n++)
 				{
-					if ( pps->nextA[n].key > 0 )
+					if ( pps->nextA[n].dir > 0 )
 					{
 						if ( level->paths[ pps->nextA[n].seg ].count > 0)
 						{
@@ -720,7 +720,7 @@ void set_point( Position *ppos )
 				//printf("at end B of %d  \n", curr_path_seg);
 				for (int n=0; n<3; n++)
 				{
-					if ( pps->nextB[n].key > 0 )
+					if ( pps->nextB[n].dir > 0 )
 					{
 						if ( level->paths[ pps->nextB[n].seg ].count > 0)
 						{
@@ -766,7 +766,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 		for (int i=0; i<3; i++)
 		{
 			// front of line (point A)
-			if ( pps->nextA[i].key > 0 && (dir & pps->nextA[i].key ) )
+			if ( pps->nextA[i].dir > 0 && (dir & pps->nextA[i].dir ) )
 			{
 				// only move to next segment along the same direction if it is exactly at the end
 				if ( level->paths[pps->nextA[i].seg].horiz )
@@ -792,7 +792,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 				}
 			}
 			// end of line (point B)
-			if ( pps->nextB[i].key > 0 && (dir & pps->nextB[i].key ))
+			if ( pps->nextB[i].dir > 0 && (dir & pps->nextB[i].dir ))
 			{
 				// only move to next segment along the same direction if it is exactly at the end
 				if ( level->paths[pps->nextB[i].seg].horiz )
@@ -840,7 +840,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 		for (int i=0; i<3; i++)
 		{
 			// front of line (point A)
-			if ( pps->nextA[i].key > 0 && (dir & pps->nextA[i].key ) )
+			if ( pps->nextA[i].dir > 0 && (dir & pps->nextA[i].dir ) )
 			{
 				// only move to next segment along the same direction if it is exactly at the end
 				if ( !level->paths[pps->nextA[i].seg].horiz )
@@ -866,7 +866,7 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 				}
 			}
 			// end of line (point B)
-			if ( pps->nextB[i].key > 0 && (dir & pps->nextB[i].key ))
+			if ( pps->nextB[i].dir > 0 && (dir & pps->nextB[i].dir ))
 			{
 				// only move to next segment along the same direction if it is exactly at the end
 				if ( !level->paths[pps->nextB[i].seg].horiz )
@@ -1035,7 +1035,7 @@ int get_best_seg( Position *enpos, int num_valid, ValidNext *next )
 	if ( pos.y > enpos->y ) dir = BITS_DOWN;
 	for (int n = 0; n < num_valid; n++)
 	{
-		if ( (next[n].key & dir) > 0 ) 
+		if ( (next[n].dir & dir) > 0 ) 
 		{
 			best = n;
 			break;
@@ -1068,7 +1068,7 @@ void move_enemies()
 			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
 
 			enemy_curr_segment[en] = pps->nextA[rand_seg_num].seg;
-			enemy_dir[en] = pps->nextA[rand_seg_num].key;
+			enemy_dir[en] = pps->nextA[rand_seg_num].dir;
 			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		if ( is_at_position( &enemy_pos[en], &pps->B ) )
@@ -1077,7 +1077,7 @@ void move_enemies()
 			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
 			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
 
-			enemy_dir[en] = pps->nextB[rand_seg_num].key;
+			enemy_dir[en] = pps->nextB[rand_seg_num].dir;
 			enemy_curr_segment[en] = pps->nextB[rand_seg_num].seg;
 			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
