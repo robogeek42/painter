@@ -978,6 +978,7 @@ void draw_level_debug()
 		draw_path_segment( &level->paths[p] );
 		//TAB(0,1+p);printf("%d: A %d,%d B %d,%d", p, 
 		//		paths[p].A.x, paths[p].A.y, paths[p].B.x, paths[p].B.y);
+		//TAB(0,1);printf("%d %d",level->paths[p].num_validA, level->paths[p].num_validB);
 		for (int n=0;n<3;n++)
 		{
 			PathSegment *pps;
@@ -1123,8 +1124,9 @@ bool save_level(char *fname, Level *level)
 
 	objs_written = fwrite( (const void*) level, sizeof(Level), 1, fp);
 	if (objs_written!=1) {
-	   TAB(25,0);printf("Fail %d\n",objs_written);
-	   return false;
+		TAB(25,0);printf("Fail %d\n",objs_written);
+		fclose(fp);
+		return false;
 	}
 	
 	if (level->num_path_segments > 0)
@@ -1133,6 +1135,7 @@ bool save_level(char *fname, Level *level)
 		if ( objs_written != level->num_path_segments )
 		{
 			TAB(25,0);printf("Fail P %d!=%d", objs_written,  level->num_path_segments);
+			fclose(fp);
 			return false;
 		}
 	}
@@ -1142,6 +1145,7 @@ bool save_level(char *fname, Level *level)
 		if ( objs_written != level->num_shapes )
 		{
 			TAB(25,0);printf("Fail S %d!=%d", objs_written,  level->num_shapes);
+			fclose(fp);
 			return false;
 		}
 	}
@@ -1165,6 +1169,7 @@ Level* load_level(char *fname)
 	if ( objs_read != 1 || newlevel->version != SAVE_LEVEL_VERSION )
 	{
 		TAB(25,0);printf("Fail L %d!=1 v%d\n", objs_read, newlevel->version );
+		fclose(fp);
 		return NULL;
 	}
 	newlevel->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
@@ -1175,6 +1180,7 @@ Level* load_level(char *fname)
 		if ( objs_read != newlevel->num_path_segments )
 		{
 			TAB(25,0);printf("Fail P %d!=%d\n", objs_read,  newlevel->num_path_segments);
+			fclose(fp);
 			return NULL;
 		}
 		set_path_counts(newlevel);
@@ -1185,6 +1191,7 @@ Level* load_level(char *fname)
 		if ( objs_read != newlevel->num_shapes )
 		{
 			TAB(25,0);printf("Fail S %d!=%d\n", objs_read,  newlevel->num_shapes);
+			fclose(fp);
 			return NULL;
 		}
 	}
