@@ -130,9 +130,17 @@ bool end_game = false;
 bool level_complete = false;
 bool winner = false;
 
-int main_colour = 9;
+int main_colour = 9; // Red
 
-Position last_play_beep_pos;
+#define MAX_GAPS 3
+typedef struct {
+	bool active;
+	Position pos[3];
+	clock_t expire_ticks;
+} Gap;
+Gap gaps[MAX_GAPS];
+int num_gaps = 0;
+int gap_time = 1000; // 10 seconds
 
 void start_level();
 bool start_new_level();
@@ -142,6 +150,7 @@ void load_images();
 void create_sprites();
 void draw_map();
 void draw_map_debug();
+bool is_near( int a, int b, int plusminus );
 void set_point( Position *ppos );
 void draw_screen();
 void update_scores();
@@ -160,7 +169,11 @@ Level* load_level(char *fname_pattern, int lnum);
 bool intro_screen1();
 bool intro_screen2();
 void disable_sound_channels();
+int get_gap_direction(PathSegment *pps, Position *ppos, Position *pgappos);
 void setup_sound_channels();
+void create_gap(int dir);
+void expire_gaps();
+void reset_gaps();
 
 static volatile SYSVAR *sys_vars = NULL;
 
@@ -195,7 +208,8 @@ int main(int argc, char *argv[])
 		if (anum >0 && anum <= MAX_LEVELS) cl = anum-1;
 	}
 
-	srand(clock());
+	//srand(clock());
+	srand(1);
 
 	// setup complete
 	vdp_mode(gMode);
@@ -203,13 +217,14 @@ int main(int argc, char *argv[])
 	vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong on emulator
 	//vdu_set_graphics_viewport()
 
-	TAB(17,11);printf("LOADING");
+	TAB(17,11);printf("LOADING\n");
 	level = load_level("levels/level%1d.data", cl+1);
 	if (level == NULL)
 	{
 		printf("Failed to load level\n");
 		return 0;
 	}
+	reset_gaps();
 
 	load_images();
 	create_sprites();
@@ -241,6 +256,10 @@ int main(int argc, char *argv[])
 
 	TAB(0,26);COL(15);printf("Goodbye!\n");
 
+	free( level->paths );
+	free( level->shapes );
+	free( level );
+	
 	vdp_mode(0);
 	vdp_logical_scr_dims(true);
 	vdp_cursor_enable( true );
@@ -260,7 +279,6 @@ void start_level()
 	pos.x = level->paths[curr_path_seg].A.x;
 	pos.y = level->paths[curr_path_seg].A.y;
 	set_point( &pos );
-	copy_position(&pos, &last_play_beep_pos);
 
 	vdp_select_sprite(0);
 	vdp_show_sprite();
@@ -272,7 +290,12 @@ void start_level()
 		enemy_pos[en].y = level->paths[enemy_curr_segment[en]].A.y;
 		enemy_pos_old[en].x = level->paths[enemy_curr_segment[en]].A.x;
 		enemy_pos_old[en].y = level->paths[enemy_curr_segment[en]].A.y;
-		enemy_dir[en] = BITS_LEFT|BITS_DOWN;
+		if ( level->paths[enemy_curr_segment[en]].horiz )
+		{
+			enemy_dir[en] = BITS_LEFT;
+		} else {
+			enemy_dir[en] = BITS_DOWN;
+		}
 	
 		vdp_select_sprite(en+1);
 		vdp_show_sprite();
@@ -326,6 +349,7 @@ bool start_new_level()
 		vdp_select_sprite(s);
 		vdp_hide_sprite();
 	}
+	reset_gaps();
 
 	vdp_clear_screen();
 	draw_screen();
@@ -356,6 +380,7 @@ bool reload_level()
 		vdp_select_sprite(s);
 		vdp_hide_sprite();
 	}
+	reset_gaps();
 	return true;
 }
 
@@ -384,64 +409,83 @@ bool game_loop()
 		{
 			key_wait_ticks = clock() + key_wait;
 
-			move_along_path_segment(&level->paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
-			vdp_select_sprite(0);
-			vdp_move_sprite_to(pos.x-4, pos.y-4);
-			vdp_refresh_sprites();
-			if ( is_at_position( &pos, &level->paths[ curr_path_seg ].A ) ||
-			     is_at_position( &pos, &level->paths[ curr_path_seg ].B ) )
+			for (int g=0; g<MAX_GAPS; g++)
 			{
-				if (! is_at_position(&pos, &last_play_beep_pos)) 
+				if ( !gaps[g].active ) continue;
+				if ( is_near(pos.x, gaps[g].pos[1].x, 4) &&
+					 is_near(pos.y, gaps[g].pos[1].y, 4) )
 				{
-					if (sound_on)
-					{
-						play_beep();
-					}
-					copy_position(&pos, &last_play_beep_pos);
+					int gap_dir = get_gap_direction( &level->paths[curr_path_seg], &pos, &gaps[g].pos[1]);
+					dir &= ~gap_dir;
+					break;
 				}
 			}
-
-
-			//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, level->paths[curr_path_seg].count);
-			if (score_changed) {
-				update_scores();
-			}
-
-			if (level_complete)
+			if ( dir > 0 )
 			{
-				start_new_level();
+				move_along_path_segment(&level->paths[curr_path_seg], &pos, &curr_path_seg, dir, true, 3);
+				vdp_select_sprite(0);
+				vdp_move_sprite_to(pos.x-4, pos.y-4);
+				vdp_refresh_sprites();
+
+				//TAB(0,0);printf("%d,%d seg:%d cnt:%d  ", pos.x, pos.y, curr_path_seg, level->paths[curr_path_seg].count);
+				if (score_changed) {
+					update_scores();
+				}
+
+				if (level_complete)
+				{
+					start_new_level();
+				}
 			}
 		}
+
+		expire_gaps();
 
 		if ( vdp_check_key_press( KEY_space ) )  // fire a gap
 		{
 			if (key_wait_ticks < clock()) 
 			{
 				key_wait_ticks = clock() + key_wait;
-
-				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_space ) );
+				if ( num_gaps < MAX_GAPS )
+				{
+					int dir = 0;
+					if ( vdp_check_key_press( KEY_LEFT ) && level->paths[curr_path_seg].horiz ) { 
+						dir = BITS_LEFT;
+					} else
+					if ( vdp_check_key_press( KEY_RIGHT ) && level->paths[curr_path_seg].horiz ) { 
+						dir = BITS_RIGHT;
+					} else
+					if ( vdp_check_key_press( KEY_UP ) && !level->paths[curr_path_seg].horiz ) { 
+						dir = BITS_UP;
+					} else
+					if ( vdp_check_key_press( KEY_DOWN ) && !level->paths[curr_path_seg].horiz ) { 
+						dir = BITS_DOWN;
+					}
+					if ( dir>0 )
+					{
+						do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_space ) );
+						create_gap( dir );
+					}
+				}
 			}
 		}
 
 		if ( vdp_check_key_press( KEY_s ) )  // Sound enable/disable
 		{
-			if (key_wait_ticks < clock()) 
+			// wait till the key is unpressed
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( KEY_s ) );
+
+			if (sound_on)
 			{
-				key_wait_ticks = clock() + key_wait;
-
-				if (sound_on)
-				{
-					disable_sound_channels();
-					sound_on = false;
-				} else {
-					setup_sound_channels();
-					sound_on = true;
-				}
-				draw_screen();
-
-				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_s ) );
-						 
+				disable_sound_channels();
+				sound_on = false;
+			} else {
+				setup_sound_channels();
+				sound_on = true;
 			}
+			draw_screen();
 		}
 
 		if ( vdp_check_key_press( KEY_x ) ) // x - exit
@@ -506,6 +550,17 @@ bool game_loop()
 		}
 
 
+		if ( vdp_check_key_press( KEY_p ) ) // pause
+		{
+			// wait till the key is unpressed
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( KEY_p ) );
+
+			// now wait for P to be pressed again to un-pause
+			if ( !wait_for_key_with_exit(KEY_p, KEY_x) ) is_exit=true;
+		}
+												 
 		vdp_update_key_state();
 	} while (!is_exit && !end_game);
 
@@ -598,6 +653,7 @@ void update_scores()
 	vdp_set_text_colour(15);
 	TAB(9,2);printf("%d  ",score);TAB(29,2);printf("%d  ",highscore);
 	TAB(9,29);printf("%d",cl+1);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",level->bonus);
+	//TAB(0,3);COL(7);printf("G:%d",MAX_GAPS-num_gaps);
 }
 
 void draw_path_segment( PathSegment *pps ) {
@@ -736,6 +792,12 @@ void set_point( Position *ppos )
 
 			if ( pps->count == 0 )
 			{
+				if (sound_on)
+				{
+					play_beep();
+					score += 10;
+					update_scores();
+				}
 				check_shape_complete();
 			}
 		}
@@ -746,18 +808,18 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 {
 	if ( pps->horiz ) // Currently on a Horizontal path
 	{
-		Position *less, *more;
+		Position *lower, *higher;
 		if ( pps->A.x < pps->B.x ) 
 		{
-			less = &pps->A;
-			more = &pps->B;
+			lower = &pps->A;
+			higher = &pps->B;
 		} else {
-			less = &pps->B;
-			more = &pps->A;
+			lower = &pps->B;
+			higher = &pps->A;
 		}
 
-		if ( (dir & BITS_LEFT) && (ppos->x > less->x) ) ppos->x -= 1;
-		if ( (dir & BITS_RIGHT) && (ppos->x < more->x) ) ppos->x += 1;
+		if ( (dir & BITS_LEFT) && (ppos->x > lower->x) ) ppos->x -= 1;
+		if ( (dir & BITS_RIGHT) && (ppos->x < higher->x) ) ppos->x += 1;
 
 		// always set the new point we move to
 		if (draw) set_point( ppos ); // only player ever sets point
@@ -822,18 +884,18 @@ void move_along_path_segment( PathSegment *pps, Position *ppos, int *curr_seg, u
 
 	} else { // Currently on a Vertical path
 
-		Position *less, *more;
+		Position *lower, *higher;
 		if ( pps->A.y < pps->B.y ) 
 		{
-			less = &pps->A;
-			more = &pps->B;
+			lower = &pps->A;
+			higher = &pps->B;
 		} else {
-			less = &pps->B;
-			more = &pps->A;
+			lower = &pps->B;
+			higher = &pps->A;
 		}
 
-		if ( (dir & BITS_UP) && (ppos->y > less->y) ) ppos->y -= 1;
-		if ( (dir & BITS_DOWN) && (ppos->y < more->y) ) ppos->y += 1;
+		if ( (dir & BITS_UP) && (ppos->y > lower->y) ) ppos->y -= 1;
+		if ( (dir & BITS_DOWN) && (ppos->y < higher->y) ) ppos->y += 1;
 
 		if (draw) set_point( ppos );
 
@@ -931,6 +993,7 @@ void check_shape_complete()
 		flash_screen(4, 25);
 		score += level->bonus;
 		level_complete = true;
+		update_scores();
 	}
 }
 
@@ -949,7 +1012,7 @@ void fill_shape( int s, bool fast )
 		vdp_filled_rect( pshape->BotRight.x-1, pshape->BotRight.y-1 );
 	} else {
 		// slow fill
-		int slice_width = MAX(1, (x2-x1)/50);
+		int slice_width = MAX(1, 2*(x2-x1)/(y2-y1));
 		for (int x=x1+1; x<x2; x+=slice_width)
 		{
 			vdp_move_to( x, y1+1 );
@@ -958,7 +1021,7 @@ void fill_shape( int s, bool fast )
 			if (sound_on)
 			{
 				// fill noise on channel 1
-				vdp_audio_play_note( 1, 10*volume, 10+(x-x1)/3, 20);
+				vdp_audio_play_note( 1, 10*volume, 10+(x-x1)/2, 20);
 			}
 			clock_t ticks=clock()+1;
 			while (ticks > clock()) {
@@ -1043,6 +1106,8 @@ int get_best_seg( Position *enpos, int num_valid, ValidNext *next )
 	}
 	return best;
 }
+
+//#define DEBUG_ENEMY_POS
 void move_enemies()
 {
 	for (int en=0; en<level->num_enemies; en++)
@@ -1053,13 +1118,35 @@ void move_enemies()
 		//int old_seg = enemy_curr_segment[en];
 		//int old_dir = enemy_dir[en];
 
+		for (int g=0; g<MAX_GAPS; g++)
+		{
+			if ( !gaps[g].active ) continue;
+			if ( is_near(enemy_pos[en].x, gaps[g].pos[1].x, 3) &&
+				 is_near(enemy_pos[en].y, gaps[g].pos[1].y, 3) )
+			{
+				if ( pps->horiz )
+				{
+					if ( enemy_pos[en].x <= gaps[g].pos[1].x ) enemy_dir[en] = BITS_LEFT;
+					if ( enemy_pos[en].x > gaps[g].pos[1].x ) enemy_dir[en] = BITS_RIGHT;
+				} else {
+					if ( enemy_pos[en].y <= gaps[g].pos[1].y ) enemy_dir[en] = BITS_UP;
+					if ( enemy_pos[en].y > gaps[g].pos[1].y ) enemy_dir[en] = BITS_DOWN;
+				}
+				break;
+			}
+		}
 		move_along_path_segment(pps, &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
 
-		//if ( enemy_pos[en].x == enemy_pos_old[en].x && enemy_pos[en].y == enemy_pos_old[en].y )
-		//{
-			//TAB(0,1);printf("Stuck: (%d,%d)",enemy_pos[en].x,enemy_pos[en].y);
+#ifdef DEBUG_ENEMY_POS
+		if ( enemy_pos[en].x == enemy_pos_old[en].x && enemy_pos[en].y == enemy_pos_old[en].y )
+		{
+			TAB(0,1);printf("Stuck: (%d,%d)",enemy_pos[en].x,enemy_pos[en].y);
 		//	bStuck = true;
-		//}
+		} else {
+			TAB(0,1);printf("                ");
+		}
+#endif
+
 		// choose a new segment
 		if ( is_at_position( &enemy_pos[en], &pps->A ) )
 		{
@@ -1081,7 +1168,9 @@ void move_enemies()
 			enemy_curr_segment[en] = pps->nextB[rand_seg_num].seg;
 			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
-		//TAB(0,2);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
+#ifdef DEBUG_ENEMY_POS
+		TAB(0,3+en);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
+#endif
 
 		vdp_select_sprite(en+1);
 		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
@@ -1149,6 +1238,7 @@ Level* load_level(char *fname_pattern, int lnum)
 	Level *newlevel = (Level*) calloc(1, sizeof(Level) );
 	if (newlevel==NULL)
 	{
+		fclose(fp);
 		return NULL;
 	}
 	
@@ -1158,6 +1248,7 @@ Level* load_level(char *fname_pattern, int lnum)
 	if ( objs_read != 1 || newlevel->version != SAVE_LEVEL_VERSION )
 	{
 		TAB(25,0);printf("Fail L %d!=1 v%d\n", objs_read, newlevel->version );
+		fclose(fp);
 		return NULL;
 	}
 	newlevel->paths = (PathSegment*) calloc(MAX_PATHS, sizeof(PathSegment));
@@ -1168,6 +1259,7 @@ Level* load_level(char *fname_pattern, int lnum)
 		if ( objs_read != newlevel->num_path_segments )
 		{
 			TAB(25,0);printf("Fail P %d!=%d\n", objs_read,  newlevel->num_path_segments);
+			fclose(fp);
 			return NULL;
 		}
 	}
@@ -1177,10 +1269,11 @@ Level* load_level(char *fname_pattern, int lnum)
 		if ( objs_read != newlevel->num_shapes )
 		{
 			TAB(25,0);printf("Fail S %d!=%d\n", objs_read,  newlevel->num_shapes);
+			fclose(fp);
 			return NULL;
 		}
 	}
-	TAB(25,0);printf("OK             ");
+	//TAB(25,0);printf("OK             ");
 
 	switch (lnum)
 	{
@@ -1221,6 +1314,8 @@ Level* load_level(char *fname_pattern, int lnum)
 			enemy_start_segment[2] = 11;
 			break;
 	}
+
+	fclose(fp);
 
 	return newlevel;
 }
@@ -1292,6 +1387,7 @@ bool intro_screen2()
 
 	COL(128);
 	COL(14);TAB(11,6);printf("Toggle");COL(10);printf(" SOUND ");COL(14);printf("with");COL(10);printf(" S");
+	COL(sound_on?10:9);TAB(35,6);printf("%s", sound_on?"ON ":"OFF");
 
 	COL(13);COL(139);TAB(13,12);printf("  Skill Level  ");
 	COL(128);
@@ -1299,10 +1395,45 @@ bool intro_screen2()
 	COL(14);TAB(6,25);printf("Press");COL(15);printf(" SPACE BAR ");COL(14);printf("to start game");
 
 	COL(15);COL(128);
-	
-	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_x);
-	if (key_pressed == 0) return false;
-	return true;
+
+	bool ret = true;	
+	bool exit_loop = false;
+	do 
+	{
+		if ( vdp_check_key_press( KEY_x ) )
+		{
+			// wait so we don't register this press multiple times
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( KEY_x ) );
+			exit_loop = true;
+			ret = false;
+		}
+
+		if ( vdp_check_key_press( KEY_space ) )
+		{
+			exit_loop = true;
+			
+			// wait so we don't register this press multiple times
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( KEY_space ) );
+		}
+
+		if ( vdp_check_key_press( KEY_s ) )
+		{
+			// wait so we don't register this press multiple times
+			do {
+				vdp_update_key_state();
+			} while ( vdp_check_key_press( KEY_s ) );
+			sound_on = !sound_on;
+			COL(sound_on?10:9);TAB(35,6);printf("%s", sound_on?"ON ":"OFF");
+		}
+
+		vdp_update_key_state();
+	} while ( !exit_loop );
+
+	return ret;
 }
 
 void setup_sound_channels()
@@ -1348,4 +1479,151 @@ void disable_sound_channels()
 		vdp_audio_reset_channel( i );
 		vdp_audio_disable_channel( i );
 	}
+}
+
+int get_gap_direction(PathSegment *pps, Position *ppos, Position *pgappos)
+{
+	int dir = 0;
+	if ( pps->horiz )
+	{
+		if ( ppos->x < pgappos->x )
+		{
+			dir = BITS_RIGHT;
+		} else if ( ppos->x > pgappos->x ) {
+			dir = BITS_LEFT;
+		}
+	} else {
+		if ( ppos->y < pgappos->y )
+		{
+			dir = BITS_UP;
+		} else if ( ppos->y > pgappos->y ) {
+			dir = BITS_DOWN;
+		}
+	}
+	return dir;
+}
+void create_gap(int dir)
+{
+	if (num_gaps >= MAX_GAPS) return;
+
+	int free_gap = 0;
+	for (int g=0;g<MAX_GAPS;g++)
+	{
+		if ( !gaps[g].active ) {
+			free_gap = g;
+			break;
+		}
+	}
+	gaps[free_gap].expire_ticks = clock() + gap_time;
+
+	PathSegment *pps = &level->paths[curr_path_seg];
+	if ( pps->horiz )
+	{
+		Position *higher, *lower;
+		if ( pps->A.x < pps->B.x ) 
+		{
+			lower = &pps->A;
+			higher = &pps->B;
+		} else {
+			lower = &pps->B;
+			higher = &pps->A;
+		}
+		gaps[free_gap].pos[0].y = pos.y;
+		gaps[free_gap].pos[1].y = pos.y;
+		gaps[free_gap].pos[2].y = pos.y;
+		if ( dir & BITS_LEFT )
+		{
+			gaps[free_gap].pos[0].x = MIN(higher->x, pos.x+4);
+			gaps[free_gap].pos[1].x = MIN(higher->x, pos.x+5);
+			gaps[free_gap].pos[2].x = MIN(higher->x, pos.x+6);
+		} else {
+			gaps[free_gap].pos[0].x = MAX(lower->x, pos.x-4);
+			gaps[free_gap].pos[1].x = MAX(lower->x, pos.x-5);
+			gaps[free_gap].pos[2].x = MAX(lower->x, pos.x-6);
+		}
+	} else {
+		Position *higher, *lower;
+		if ( pps->A.y < pps->B.y ) 
+		{
+			lower = &pps->A;
+			higher = &pps->B;
+		} else {
+			lower = &pps->B;
+			higher = &pps->A;
+		}
+		gaps[free_gap].pos[0].x = pos.x;
+		gaps[free_gap].pos[1].x = pos.x;
+		gaps[free_gap].pos[2].x = pos.x;
+		if ( dir & BITS_LEFT )
+		{
+			gaps[free_gap].pos[0].y = MIN(higher->y, pos.y+4);
+			gaps[free_gap].pos[1].y = MIN(higher->y, pos.y+5);
+			gaps[free_gap].pos[2].y = MIN(higher->y, pos.y+6);
+		} else {
+			gaps[free_gap].pos[0].y = MAX(lower->y, pos.y-4);
+			gaps[free_gap].pos[1].y = MAX(lower->y, pos.y-5);
+			gaps[free_gap].pos[2].y = MAX(lower->y, pos.y-6);
+		}
+	}
+
+	gaps[free_gap].active = true;
+	num_gaps++;
+
+	update_scores();
+
+	// black out the pixels
+	vdp_gcol(0,0);
+	for (int i=0;i<3;i++)
+	{
+		vdp_point( gaps[free_gap].pos[i].x, gaps[free_gap].pos[i].y );
+	}
+	vdp_gcol(0,15);
+
+	if ( sound_on )
+	{
+		// play sound
+		vdp_audio_play_note( 1, // channel
+							10*volume, // volume
+							73, // freq
+							20 // duration
+							);
+	}
+}
+
+void expire_gaps()
+{
+	for (int g=0;g<MAX_GAPS;g++)
+	{
+		if ( !gaps[g].active ) continue;
+		if ( gaps[g].expire_ticks < clock() )
+		{
+			gaps[g].active = false;
+			num_gaps--;
+			for (int i=0;i<3;i++)
+			{
+				vdp_gcol(0, 15);
+				vdp_point( gaps[g].pos[i].x, gaps[g].pos[i].y );
+			}
+			if ( sound_on )
+			{
+				// play sound
+				vdp_audio_play_note( 1, // channel
+									10*volume, // volume
+									200, // freq
+									15 // duration
+									);
+			}
+		}
+			
+	}
+	
+}
+void reset_gaps()
+{
+	for (int g=0;g<MAX_GAPS;g++)
+	{
+		gaps[g].active = false;
+		gaps[g].expire_ticks = clock();
+	}
+	num_gaps = 0;
 }
