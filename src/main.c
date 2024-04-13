@@ -36,6 +36,8 @@ int gScreenHeight = 240;
 int key_wait = 1;
 int anim_speed = 10;
 int enemy_speed = 1;
+int enemy_skip_every = 3;
+int enemy_skip_count = 0;
 //------------------------------------------------------------
 
 
@@ -54,7 +56,7 @@ Position enemy_pos_old[MAX_NUM_ENEMIES] = {};
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
 int enemy_start_segment[MAX_NUM_ENEMIES];
-int enemy_chase_percent = 100;
+int enemy_chase_percent = 30;
 
 typedef struct {
 	int dir; // direction of this segment from the current path end-node
@@ -518,28 +520,30 @@ bool game_loop()
 		if ( enemy_ticks < clock() )
 		{
 			enemy_ticks = clock() + enemy_speed;
-			move_enemies();
-
-			if ( restart_level )
+			if ( ( (enemy_skip_count++) % enemy_skip_every ) > 0 )
 			{
-				restart_level = false;
-				if ( ! reload_level() ) exit(-1);
-				print_box_prompt("Oh Dear! READY?",12,11);
-				if (!wait_for_any_key_with_exit(KEY_x)) 
+				move_enemies();
+
+				if ( restart_level )
 				{
-					is_exit = true;
+					restart_level = false;
+					if ( ! reload_level() ) exit(-1);
+					print_box_prompt("Oh Dear! READY?",12,11);
+					if (!wait_for_any_key_with_exit(KEY_x)) 
+					{
+						is_exit = true;
+					}
+					else
+					{
+						start_level();
+					}
 				}
-				else
+				if ( end_game )
 				{
-					start_level();
+					print_box_prompt("  You Lose  ",9,11);
+					if (!wait_for_any_key_with_exit(KEY_x)) is_exit = true;
 				}
 			}
-			if ( end_game )
-			{
-				print_box_prompt("  You Lose  ",9,11);
-				if (!wait_for_any_key_with_exit(KEY_x)) is_exit = true;
-			}
-
 		}
 
 		if ( bonus_countdown_ticks < clock() )
@@ -1087,7 +1091,40 @@ int direction_choice( int seg, bool at_A )
 	return dir;
 }
 
-int get_best_seg( Position *enpos, int num_valid, ValidNext *next )
+void move_enemy_along_path_segment( PathSegment *pps, Position *ppos, uint8_t dir)
+{
+	if ( pps->horiz ) // Currently on a Horizontal path
+	{
+		Position *lower, *higher;
+		if ( pps->A.x < pps->B.x ) 
+		{
+			lower = &pps->A;
+			higher = &pps->B;
+		} else {
+			lower = &pps->B;
+			higher = &pps->A;
+		}
+
+		if ( (dir & BITS_LEFT) && (ppos->x > lower->x) ) ppos->x -= 1;
+		if ( (dir & BITS_RIGHT) && (ppos->x < higher->x) ) ppos->x += 1;
+
+	} else { // Currently on a Vertical path
+
+		Position *lower, *higher;
+		if ( pps->A.y < pps->B.y ) 
+		{
+			lower = &pps->A;
+			higher = &pps->B;
+		} else {
+			lower = &pps->B;
+			higher = &pps->A;
+		}
+
+		if ( (dir & BITS_UP) && (ppos->y > lower->y) ) ppos->y -= 1;
+		if ( (dir & BITS_DOWN) && (ppos->y < higher->y) ) ppos->y += 1;
+	}
+}
+int get_best_next( Position *enpos, int num_valid, ValidNext *next )
 {
 	int best = 0;
 	int dir = 0;
@@ -1106,16 +1143,11 @@ int get_best_seg( Position *enpos, int num_valid, ValidNext *next )
 	return best;
 }
 
-//#define DEBUG_ENEMY_POS
 void move_enemies()
 {
 	for (int en=0; en<level->num_enemies; en++)
 	{
-		//bool bStuck = false;
 		PathSegment *pps = &level->paths[enemy_curr_segment[en]];
-		//for debug printf below
-		//int old_seg = enemy_curr_segment[en];
-		//int old_dir = enemy_dir[en];
 
 		for (int g=0; g<MAX_GAPS; g++)
 		{
@@ -1134,44 +1166,33 @@ void move_enemies()
 				break;
 			}
 		}
-		move_along_path_segment(pps, &enemy_pos[en], &enemy_curr_segment[en], enemy_dir[en], false, 0);
-
-#ifdef DEBUG_ENEMY_POS
-		if ( enemy_pos[en].x == enemy_pos_old[en].x && enemy_pos[en].y == enemy_pos_old[en].y )
-		{
-			TAB(0,1);printf("Stuck: (%d,%d)",enemy_pos[en].x,enemy_pos[en].y);
-		//	bStuck = true;
-		} else {
-			TAB(0,1);printf("                ");
-		}
-#endif
+		move_enemy_along_path_segment(pps, &enemy_pos[en], enemy_dir[en]);
 
 		// choose a new segment
 		if ( is_at_position( &enemy_pos[en], &pps->A ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validA );
-			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
-			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? chase_seg_num : rand_seg_num;
-			int chosen_seg_num = rand_seg_num;
+			int chase_seg_num = get_best_next( &enemy_pos[en], pps->num_validA,  pps->nextA );
+			int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? chase_seg_num : rand_seg_num;
+			//int chosen_seg_num = rand_seg_num;
 
-			enemy_curr_segment[en] = pps->nextA[chosen_seg_num].seg;
-			enemy_dir[en] = pps->nextA[chosen_seg_num].dir;
-			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
-		}
+			int next_seg = pps->nextA[chosen_seg_num].seg;
+			int next_dir = pps->nextA[chosen_seg_num].dir;
+			enemy_curr_segment[en] = next_seg;
+			enemy_dir[en] = next_dir;
+		} else 
 		if ( is_at_position( &enemy_pos[en], &pps->B ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validB );
-			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
-			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? chase_seg_num : rand_seg_num;
-			int chosen_seg_num = rand_seg_num;
+			int chase_seg_num = get_best_next( &enemy_pos[en], pps->num_validB,  pps->nextB );
+			int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? chase_seg_num : rand_seg_num;
+			//int chosen_seg_num = rand_seg_num;
 
-			enemy_dir[en] = pps->nextB[chosen_seg_num].dir;
-			enemy_curr_segment[en] = pps->nextB[chosen_seg_num].seg;
-			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
+			int next_seg = pps->nextB[chosen_seg_num].seg;
+			int next_dir = pps->nextB[chosen_seg_num].dir;
+			enemy_curr_segment[en] = next_seg;
+			enemy_dir[en] = next_dir;
 		}
-#ifdef DEBUG_ENEMY_POS
-		TAB(0,3+en);printf("%d: (%d,%d) d:%d s:%d    \n",en,enemy_pos[en].x,enemy_pos[en].y,enemy_dir[en],enemy_curr_segment[en]);
-#endif
 
 		vdp_select_sprite(en+1);
 		vdp_move_sprite_to(enemy_pos[en].x-4, enemy_pos[en].y-4);
