@@ -54,7 +54,7 @@ Position enemy_pos_old[MAX_NUM_ENEMIES] = {};
 int enemy_curr_segment[MAX_NUM_ENEMIES];
 int enemy_dir[MAX_NUM_ENEMIES];
 int enemy_start_segment[MAX_NUM_ENEMIES];
-int enemy_chase_percent = 0;
+int enemy_chase_percent = 100;
 
 typedef struct {
 	int dir; // direction of this segment from the current path end-node
@@ -208,8 +208,7 @@ int main(int argc, char *argv[])
 		if (anum >0 && anum <= MAX_LEVELS) cl = anum-1;
 	}
 
-	//srand(clock());
-	srand(1);
+	srand(clock());
 
 	// setup complete
 	vdp_mode(gMode);
@@ -1092,10 +1091,10 @@ int get_best_seg( Position *enpos, int num_valid, ValidNext *next )
 {
 	int best = 0;
 	int dir = 0;
-	if ( pos.x < enpos->x ) dir = BITS_LEFT;
-	if ( pos.x > enpos->x ) dir = BITS_RIGHT;
-	if ( pos.y < enpos->y ) dir = BITS_UP;
-	if ( pos.y > enpos->y ) dir = BITS_DOWN;
+	if ( pos.x < enpos->x ) dir |= BITS_LEFT;
+	if ( pos.x > enpos->x ) dir |= BITS_RIGHT;
+	if ( pos.y < enpos->y ) dir |= BITS_UP;
+	if ( pos.y > enpos->y ) dir |= BITS_DOWN;
 	for (int n = 0; n < num_valid; n++)
 	{
 		if ( (next[n].dir & dir) > 0 ) 
@@ -1152,20 +1151,22 @@ void move_enemies()
 		{
 			int rand_seg_num = ( rand() % pps->num_validA );
 			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
-			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
+			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? chase_seg_num : rand_seg_num;
+			int chosen_seg_num = rand_seg_num;
 
-			enemy_curr_segment[en] = pps->nextA[rand_seg_num].seg;
-			enemy_dir[en] = pps->nextA[rand_seg_num].dir;
+			enemy_curr_segment[en] = pps->nextA[chosen_seg_num].seg;
+			enemy_dir[en] = pps->nextA[chosen_seg_num].dir;
 			//TAB(0,3);printf("%d: A s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 		if ( is_at_position( &enemy_pos[en], &pps->B ) )
 		{
 			int rand_seg_num = ( rand() % pps->num_validB );
 			//int chase_seg_num = get_best_seg( &enemy_pos[en], pps->num_validA,  pps->nextA );
-			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? rand_seg_num : chase_seg_num;
+			//int chosen_seg_num = ( rand() % 100)<enemy_chase_percent ? chase_seg_num : rand_seg_num;
+			int chosen_seg_num = rand_seg_num;
 
-			enemy_dir[en] = pps->nextB[rand_seg_num].dir;
-			enemy_curr_segment[en] = pps->nextB[rand_seg_num].seg;
+			enemy_dir[en] = pps->nextB[chosen_seg_num].dir;
+			enemy_curr_segment[en] = pps->nextB[chosen_seg_num].seg;
 			//TAB(0,3);printf("%d: B s:%d(%d) -> s:%d(%d)    \n",en,old_seg,old_dir,enemy_curr_segment[en],enemy_dir[en]);
 		}
 #ifdef DEBUG_ENEMY_POS
