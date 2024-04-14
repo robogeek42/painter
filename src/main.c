@@ -145,6 +145,18 @@ Gap gaps[MAX_GAPS];
 int num_gaps = 0;
 int gap_time = 1000; // 10 seconds
 
+int key_select = 2; // cursor keys
+uint8_t keys[3][8] = {
+	{ KEY_a, KEY_A, KEY_z, KEY_Z, KEY_comma, KEY_lt, KEY_dot, KEY_gt },
+	{ KEY_tick, KEY_at, KEY_forwardslash, KEY_questionmark, KEY_z, KEY_Z, KEY_x, KEY_X },
+	{ KEY_UP, KEY_UP, KEY_DOWN, KEY_DOWN, KEY_LEFT, KEY_LEFT, KEY_RIGHT, KEY_RIGHT }
+};
+char *keys_description[3] = {
+	"A  Z  <  > ",
+	"@  /  Z  X ",
+	"Cursor Keys" 
+};
+
 void start_level();
 bool start_new_level();
 bool reload_level();
@@ -169,8 +181,10 @@ void play_beep();
 void play_wah_wah();
 void play_crash();
 Level* load_level(char *fname_pattern, int lnum);
-bool intro_screen1();
-bool intro_screen2();
+void set_skill(int s);
+bool intro_screen2_m7();
+bool intro_screen1_m7();
+bool intro_key_select_m7();
 void disable_sound_channels();
 int get_gap_direction(PathSegment *pps, Position *ppos, Position *pgappos);
 void setup_sound_channels();
@@ -216,8 +230,7 @@ int main(int argc, char *argv[])
 	// setup complete
 	vdp_mode(gMode);
 	vdp_logical_scr_dims(false);
-	vdp_cursor_enable( false ); // hiding cursor causes read pixels to go wrong on emulator
-	//vdu_set_graphics_viewport()
+	vdp_cursor_enable( false );
 
 	TAB(17,11);printf("LOADING\n");
 	level = load_level("levels/level%1d.data", cl+1);
@@ -236,12 +249,12 @@ int main(int argc, char *argv[])
 		setup_sound_channels();
 	}
 
-	if ( intro_screen1() )
+	if ( intro_screen1_m7() )
 	{
 		bool play_again = false;
 		do 
 		{
-			play_again = intro_screen2();
+			play_again = intro_screen2_m7();
 			lives = 3;
 			if ( play_again )
 			{
@@ -521,7 +534,7 @@ bool game_loop()
 		if ( enemy_ticks < clock() )
 		{
 			enemy_ticks = clock() + enemy_speed;
-			if ( ( (enemy_skip_count++) % enemy_skip_every ) > 0 )
+			if ( enemy_skip_every==0 || ( (enemy_skip_count++) % enemy_skip_every ) > 0 )
 			{
 				move_enemies();
 
@@ -542,6 +555,7 @@ bool game_loop()
 				if ( end_game )
 				{
 					print_box_prompt("  You Lose  ",9,11);
+					wait_clock(50);
 					if (!wait_for_any_key_with_exit(KEY_x)) is_exit = true;
 				}
 			}
@@ -1298,9 +1312,12 @@ Level* load_level(char *fname_pattern, int lnum)
 	}
 	//TAB(25,0);printf("OK             ");
 
+	fclose(fp);
+
 	switch (lnum)
 	{
 		case 0:
+			// no level "0"
 			break;
 		case 1: 
 			newlevel->bonus = 2000; 
@@ -1337,10 +1354,50 @@ Level* load_level(char *fname_pattern, int lnum)
 			enemy_start_segment[2] = 11;
 			break;
 	}
-
-	fclose(fp);
-
+	
 	return newlevel;
+}
+
+void set_skill(int s)
+{
+	switch (s)
+	{
+		default:
+		case 0:
+			// no skill = 0;
+			break;
+		case 1:
+			skill = 1;
+			enemy_skip_every = 3;
+			enemy_chase_percent = 0;
+			break;
+		case 2:
+			skill = 2;
+			enemy_skip_every = 5;
+			enemy_chase_percent = 10;
+			break;
+		case 3:
+			skill = 3;
+			enemy_skip_every = 5;
+			enemy_chase_percent = 25;
+			break;
+		case 4:
+			skill = 4;
+			enemy_skip_every = 0;
+			enemy_chase_percent = 50;
+			break;
+		case 5:
+			skill = 5;
+			enemy_skip_every = 0;
+			enemy_chase_percent = 25;
+			break;
+		case 6:
+			skill = 6;
+			enemy_skip_every = 0;
+			enemy_chase_percent = 90;
+			break;
+	}
+
 }
 
 #if 0
@@ -1357,67 +1414,167 @@ void PRINT(int X, int Y, int fcol, int bcol, char *str)
 #endif
 
 
-bool intro_screen1()
+#define M7COL(C) putch((C)+128)
+#define M7BGCOL(B) putch((B)+128);putch(157)
+#define M7BGOFF putch(156)
+
+void intro_header_m7()
 {
- 	vdp_clear_screen();
-	vdp_gcol(0,11);
-	vdp_move_to(0,0);
-	vdp_filled_rect(319,39);
+	TAB(0,0);M7BGCOL(3);printf(" ");
+	TAB(0,1);M7BGCOL(3);printf(" "); TAB(10,1); M7BGCOL(4);printf(" "); TAB(29,1); M7BGCOL(3);printf(" ");
+	TAB(0,2);M7BGCOL(3);printf(" "); 
+	TAB(3,2);M7COL(5);printf("AGON");
+	TAB(10,2);M7BGCOL(4);M7COL(3);printf(" P A I N T E R");TAB(29,2); M7BGCOL(3);printf(" ");
+	TAB(32,2);M7COL(5);printf("AGON");
+	TAB(0,3);M7BGCOL(3);printf(" "); TAB(10,3); M7BGCOL(4);printf(" "); TAB(29,3); M7BGCOL(3);printf(" ");
+	TAB(0,4);M7BGCOL(3);printf(" ");
 
-	vdp_gcol(0,12);
-	vdp_move_to(104,8);
-	vdp_filled_rect(223,31);
-	COL(11);COL(140);TAB(14,2);printf("P A I N T E R");
-	COL(13);COL(139);TAB(4,2);printf("AGON");TAB(32,2);printf("AGON");
+}
+bool intro_screen1_m7()
+{
+	vdp_mode(7);
+	// header
+	intro_header_m7();
+	// blurb
+	TAB(3,6);M7COL(6);printf("Use your");M7COL(2);printf("PAINTER");M7COL(6);printf("to fill in the");
+	TAB(1,7);M7COL(6);printf("boxes by completing the lines around");
+	TAB(1,8);M7COL(6);printf("them.  You must fill in all the boxes");
+	TAB(1,9);M7COL(6);printf("before the");M7COL(5);printf("BONUS");M7COL(6);printf("value reaches zero.");
 
-	COL(128);
-	COL(14);TAB(4,6);printf("Use your");COL(10);printf(" PAINTER ");COL(14);printf("to fill in the");
-	COL(14);TAB(2,7);printf("boxes by completing the lines around");
-	COL(14);TAB(2,8);printf("them.  You must fill in all the boxes");
-	COL(14);TAB(2,9);printf("before the");COL(13);printf(" BONUS ");COL(14);printf("value reaches zero.");
+	TAB(3,11);M7COL(5);printf("To avoid the");M7COL(3);printf("CHASERS");M7COL(5);printf("you may fire");
+	TAB(1,12);M7COL(5);printf("up to 3 temporary");M7COL(7);printf("GAPS");M7COL(5);printf("in the lines");
+	TAB(1,13);M7COL(5);printf("by pressing the");M7COL(6);printf("SPACE BAR");
 
-	COL(13);TAB(4,12);printf("To avoid the");COL(11);printf(" CHASERS ");COL(13);printf("you may fire");
-	COL(13);TAB(2,13);printf("up to 3 temporary ");COL(15);printf("GAPS ");COL(13);printf("in the lines");
-	COL(13);TAB(2,14);printf("by pressing the ");COL(14);printf("SPACE BAR");
+	TAB(3,15);M7COL(6);printf("The skill factor affects both the");
+	TAB(1,16);M7COL(6);printf("speed and intelligence of the chasers.");
 
-	COL(14);TAB(4,17);printf("The skill factor affects both the");
-	COL(14);TAB(2,18);printf("speed and intelligence of the chasers.");
+	TAB(3,18);M7COL(5);printf("You have 3 lives, with a bonus life");
+	TAB(1,19);M7COL(5);printf("if you reach a score of");M7COL(7);printf("50000.");
 
-	COL(13);TAB(4,21);printf("You have 3 lives, with a bonus life");
-	COL(13);TAB(2,22);printf("if you reach a score of ");COL(15);printf("50000.");
-
-	COL(15);TAB(11,25);printf("Press SPACE to continue");
-
-	COL(15);COL(128);
-
+	
+	TAB(8,21); M7COL(7);printf("Press SPACE to continue");
 	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_x);
+	vdp_mode(gMode);
 	if (key_pressed == 0) return false;
 	return true;
 }
 
-bool intro_screen2()
+bool intro_screen2_m7()
 {
- 	vdp_clear_screen();
-	vdp_gcol(0,11);
-	vdp_move_to(0,0);
-	vdp_filled_rect(319,39);
+	bool ret = true;	
+	vdp_mode(7);
 
-	vdp_gcol(0,12);
-	vdp_move_to(104,8);
-	vdp_filled_rect(223,31);
-	COL(11);COL(140);TAB(14,2);printf("P A I N T E R");
-	COL(13);COL(139);TAB(4,2);printf("AGON");TAB(32,2);printf("AGON");
+	bool full_exit = false;
+	while ( !full_exit )
+	{
+		// header
+		intro_header_m7();
 
-	COL(128);
-	COL(14);TAB(11,6);printf("Toggle");COL(10);printf(" SOUND ");COL(14);printf("with");COL(10);printf(" S");
-	COL(sound_on?10:9);TAB(35,6);printf("%s", sound_on?"ON ":"OFF");
+		TAB(11,8);M7BGCOL(3);M7COL(4);printf("Skill Level  ");M7BGOFF;
+		TAB(3,11);M7COL(7);printf("Please select skill level (1-6)");
+		TAB(6,13);M7COL(3);printf("1 - Easy         6 - Hard");
+		TAB(2,15);M7COL(6);printf("Or press");M7COL(7);printf("K");M7COL(6);printf("to change direction keys");
 
-	COL(13);COL(139);TAB(13,12);printf("  Skill Level  ");
-	COL(128);
-	COL(15);TAB(20,14);printf("%d", skill);
-	COL(14);TAB(6,25);printf("Press");COL(15);printf(" SPACE BAR ");COL(14);printf("to start game");
+		//TAB(20,14);printf("%d", skill);
+		
+		TAB(14,17);M7BGCOL(3);M7COL(4);printf("?   ");M7BGOFF;
 
-	COL(15);COL(128);
+		//TAB(8,21); M7COL(7);printf("Press SPACE to continue");
+
+		TAB(3,22);M7COL(5);printf("Keys:");M7COL(7);printf("%s", keys_description[key_select]);
+		TAB(3,23);M7COL(2);printf("P");;M7COL(6);printf("Pause. ");M7COL(2);printf("S");;M7COL(6);printf("Toggle sound");
+		TAB(34,23);M7COL(sound_on?2:1);printf("%s", sound_on?"ON ":"OFF");
+
+		TAB(19,17);
+
+		bool exit_loop = false;
+		bool skill_set = false;
+		do 
+		{
+			if ( vdp_check_key_press( KEY_x ) )
+			{
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_x ) );
+				exit_loop = true;
+				full_exit = true;
+				ret = false;
+			}
+
+			if ( vdp_check_key_press( KEY_space ) )
+			{
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_space ) );
+
+				if ( skill_set ) 
+				{
+					exit_loop = true;
+					full_exit = true;
+				}
+			}
+
+			if ( vdp_check_key_press( KEY_s ) )
+			{
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_s ) );
+				sound_on = !sound_on;
+				TAB(34,23);M7COL(sound_on?2:1);printf("%s", sound_on?"ON ":"OFF");TAB(21,17);
+				TAB(19,17);
+			}
+
+			// number keys for skill level. KEY_1 == 0x3
+			for (int s=1; s<7; s++)
+			{
+				if ( vdp_check_key_press( s+2 ) )
+				{
+					do { vdp_update_key_state(); } while ( vdp_check_key_press( s+2 ) );
+					TAB(8,20); M7COL(7);printf("Press SPACE to continue");
+					set_skill(s);
+					skill_set = true;
+					TAB(19,17);printf("%d",skill);
+				}
+			}
+
+			if ( vdp_check_key_press( KEY_k ) )
+			{
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_k ) );
+
+				// do key select dialog
+				if ( ! intro_key_select_m7() ) 
+				{
+					exit_loop = true;
+					full_exit = true;
+					ret = false;
+				}
+				else
+				{
+					vdp_clear_screen();
+					exit_loop = true;
+				}
+			}
+
+			vdp_update_key_state();
+		} while ( !exit_loop );
+	}
+	vdp_mode(gMode);
+	vdp_cursor_enable( false );
+	return ret;
+}
+
+bool intro_key_select_m7()
+{
+	//vdp_mode(7);
+	vdp_clear_screen();
+	// header
+	intro_header_m7();
+
+	TAB(11,7);M7BGCOL(3);M7COL(4);printf("KEY SELECTION  ");M7BGOFF;
+	TAB(8,9);M7COL(7);printf("Up   Down  Left  Right");
+	TAB(4,11);M7COL(7);printf("1 :");
+	TAB(8,11);M7COL(3);printf("A    Z     <     >");
+	TAB(4,13);M7COL(7);printf("2 :");
+	TAB(8,13);M7COL(3);printf("@    ?     Z     Z");
+	TAB(4,15);M7COL(7);printf("3 :");
+	TAB(8,15);M7COL(3);printf("Cursor Keys");
+
+	TAB(2,18);M7COL(7);printf("What is your choice? ");
+	TAB(22,17);
 
 	bool ret = true;	
 	bool exit_loop = false;
@@ -1425,37 +1582,28 @@ bool intro_screen2()
 	{
 		if ( vdp_check_key_press( KEY_x ) )
 		{
-			// wait so we don't register this press multiple times
-			do {
-				vdp_update_key_state();
-			} while ( vdp_check_key_press( KEY_x ) );
+			do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_x ) );
 			exit_loop = true;
 			ret = false;
 		}
 
-		if ( vdp_check_key_press( KEY_space ) )
+		// number keys for key choice level. KEY_1 == 0x3
+		for (int s=1; s<4; s++)
 		{
-			exit_loop = true;
-			
-			// wait so we don't register this press multiple times
-			do {
-				vdp_update_key_state();
-			} while ( vdp_check_key_press( KEY_space ) );
-		}
-
-		if ( vdp_check_key_press( KEY_s ) )
-		{
-			// wait so we don't register this press multiple times
-			do {
-				vdp_update_key_state();
-			} while ( vdp_check_key_press( KEY_s ) );
-			sound_on = !sound_on;
-			COL(sound_on?10:9);TAB(35,6);printf("%s", sound_on?"ON ":"OFF");
+			if ( vdp_check_key_press( s+2 ) )
+			{
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( s+2 ) );
+				TAB(22,17);printf("%d",s);
+				key_select = s-1;
+				wait_clock(30);
+				exit_loop = true;
+			}
 		}
 
 		vdp_update_key_state();
 	} while ( !exit_loop );
 
+	//vdp_mode(gMode);
 	return ret;
 }
 
@@ -1662,3 +1810,4 @@ void reset_gaps()
 	}
 	num_gaps = 0;
 }
+
