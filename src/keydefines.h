@@ -83,7 +83,7 @@
 #define KEY_semicolon 0x5C
 #define KEY_colon 0x5A
 
-#define KEY_tick 0x6C
+#define KEY_tick 0x4C
 #define KEY_at 0x60
 
 #define KEY_hash 0x7F

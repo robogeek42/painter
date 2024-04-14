@@ -132,6 +132,8 @@ bool end_game = false;
 bool level_complete = false;
 bool winner = false;
 
+bool extra_life_at_50k_added = false;
+
 int main_colour = 9; // Red
 
 #define MAX_GAPS 3
@@ -167,6 +169,7 @@ void draw_map();
 void draw_map_debug();
 bool is_near( int a, int b, int plusminus );
 void set_point( Position *ppos );
+void show_lives();
 void draw_screen();
 void update_scores();
 void draw_path_segment( PathSegment *pps );
@@ -178,7 +181,7 @@ void fill_shape( int s, bool fast );
 bool flash_screen(int repeat, int speed);
 void move_enemies();
 void play_beep();
-void play_wah_wah();
+void play_wah_wah(int duration);
 void play_crash();
 Level* load_level(char *fname_pattern, int lnum);
 void set_skill(int s);
@@ -322,7 +325,7 @@ void start_level()
 	if (sound_on)
 	{
 		// wah-wah plays on channel 2
-		play_wah_wah();
+		play_wah_wah(2600);
 	}
 	if ( !flash_screen(10,30) ) is_exit = true;
 		
@@ -372,7 +375,7 @@ bool start_new_level()
 	update_scores();
 
 	print_box_prompt("READY?",12,11);
-	if (!wait_for_any_key_with_exit(KEY_x)) return false;
+	if (!wait_for_any_key_with_exit(KEY_q)) return false;
 	start_level();
 	return true;
 }
@@ -399,6 +402,16 @@ bool reload_level()
 	return true;
 }
 
+int check_direction_keys()
+{
+	int dir = 0;
+	if ( vdp_check_key_press( keys[key_select][0] ) || vdp_check_key_press( keys[key_select][1] ) ) { dir |= BITS_UP; }
+	if ( vdp_check_key_press( keys[key_select][2] ) || vdp_check_key_press( keys[key_select][3] ) ) { dir |= BITS_DOWN; }
+	if ( vdp_check_key_press( keys[key_select][4] ) || vdp_check_key_press( keys[key_select][5] ) ) { dir |= BITS_LEFT; }
+	if ( vdp_check_key_press( keys[key_select][6] ) || vdp_check_key_press( keys[key_select][7] ) ) { dir |= BITS_RIGHT; }
+	return dir;
+}
+
 bool game_loop()
 {
 	key_wait_ticks = clock();
@@ -414,10 +427,7 @@ bool game_loop()
 		uint8_t dir=0;
 
 		// player movement key presses
-		if ( vdp_check_key_press( KEY_LEFT ) ) { dir |= BITS_LEFT; }
-		if ( vdp_check_key_press( KEY_RIGHT ) ) { dir |= BITS_RIGHT; }
-		if ( vdp_check_key_press( KEY_UP ) ) { dir |= BITS_UP; }
-		if ( vdp_check_key_press( KEY_DOWN ) ) { dir |= BITS_DOWN; }
+		dir = check_direction_keys();
 
 		// move the player
 		if ( dir>0 && ( key_wait_ticks < clock() ) )
@@ -503,7 +513,7 @@ bool game_loop()
 			draw_screen();
 		}
 
-		if ( vdp_check_key_press( KEY_x ) ) // x - exit
+		if ( vdp_check_key_press( KEY_q ) ) // q - exit
 		{
 			TAB(0,1);printf("Are you sure?");
 			char k=getchar(); 
@@ -543,7 +553,7 @@ bool game_loop()
 					restart_level = false;
 					if ( ! reload_level() ) exit(-1);
 					print_box_prompt("Oh Dear! READY?",12,11);
-					if (!wait_for_any_key_with_exit(KEY_x)) 
+					if (!wait_for_any_key_with_exit(KEY_q)) 
 					{
 						is_exit = true;
 					}
@@ -556,7 +566,7 @@ bool game_loop()
 				{
 					print_box_prompt("  You Lose  ",9,11);
 					wait_clock(50);
-					if (!wait_for_any_key_with_exit(KEY_x)) is_exit = true;
+					if (!wait_for_any_key_with_exit(KEY_q)) is_exit = true;
 				}
 			}
 		}
@@ -564,7 +574,25 @@ bool game_loop()
 		if ( bonus_countdown_ticks < clock() )
 		{
 			bonus_countdown_ticks = clock() + bonus_countdown_time;
-			if ( level->bonus > 0) level->bonus -= 100;
+			if ( level->bonus > 0) {
+			   	level->bonus -= 100;
+			} else {
+				level->bonus = 0;
+				if (sound_on)
+				{
+					play_crash();
+				}
+
+				flash_screen(2,30);
+
+				lives--;
+				if ( lives == 0 )
+				{
+					end_game = true;
+				} else {
+					restart_level = true;
+				}
+			}
 		}
 
 
@@ -576,7 +604,7 @@ bool game_loop()
 			} while ( vdp_check_key_press( KEY_p ) );
 
 			// now wait for P to be pressed again to un-pause
-			if ( !wait_for_key_with_exit(KEY_p, KEY_x) ) is_exit=true;
+			if ( !wait_for_key_with_exit(KEY_p, KEY_q) ) is_exit=true;
 		}
 												 
 		vdp_update_key_state();
@@ -590,7 +618,7 @@ bool game_loop()
 
 	if ( winner )
 	{
-		print_box_prompt("  YOU WIN!!!  ",10,11);
+		print_box_prompt("  YOU WIN!!!  ",10,3);
 		wait_for_any_key();
 	}
 
@@ -641,6 +669,17 @@ void create_sprites()
 	}
 }
 
+void show_lives()
+{
+	//TAB(20,2);printf("%d",lives);
+	TAB(17,3);printf("        ");
+	for (int i=0; i< lives; i++)
+	{
+		vdp_adv_select_bitmap(0);
+		vdp_draw_bitmap(160-20+16*i,24);
+	}
+}
+
 void draw_screen()
 {
 	vdp_set_text_colour(main_colour);
@@ -658,16 +697,21 @@ void draw_screen()
 	vdp_set_text_colour(main_colour);
 	TAB(7,27);printf("FRAME");TAB(18,27);printf("SKILL");TAB(27,27);printf("BONUS");
 	vdp_set_text_colour(15);
-	//TAB(20,2);printf("%d",lives);
-	TAB(17,3);printf("        ");
-	for (int i=0; i< lives; i++)
-	{
-		vdp_adv_select_bitmap(0);
-		vdp_draw_bitmap(160-20+16*i,24);
-	}
+	show_lives();
 }
 void update_scores()
 {
+	if ( !extra_life_at_50k_added && score >= 50000 )
+	{
+		extra_life_at_50k_added=true;
+		lives++;
+		if ( sound_on )
+		{
+			play_wah_wah(100);
+		}
+		show_lives();
+		flash_screen(3, 20);
+	}
 	vdp_set_text_colour(15);
 	TAB(9,2);printf("%d  ",score);TAB(29,2);printf("%d  ",highscore);
 	TAB(9,29);printf("%d",cl+1);TAB(20,29);printf("%d",skill);TAB(29,29);printf("%d  ",level->bonus);
@@ -1066,7 +1110,7 @@ bool flash_screen(int repeat, int speed)
 		ticks = clock()+speed;
 		while (ticks > clock())
 		{
-			if ( vdp_check_key_press( KEY_x ) )
+			if ( vdp_check_key_press( KEY_q ) )
 			{
 				ret = false;
 			}
@@ -1241,12 +1285,12 @@ void play_beep()
 	vdp_audio_play_note( 0, 20*volume, 2217, 40);
 }
 
-void play_wah_wah()
+void play_wah_wah( int duration)
 {
 	vdp_audio_play_note( 2, // channel
 		   				10*volume, // volume
 						73, // freq
-						2600 // duration
+						duration
 						);
 }
 
@@ -1453,7 +1497,7 @@ bool intro_screen1_m7()
 
 	
 	TAB(8,21); M7COL(7);printf("Press SPACE to continue");
-	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_x);
+	uint8_t key_pressed = wait_for_key_with_exit(KEY_space, KEY_q);
 	vdp_mode(gMode);
 	if (key_pressed == 0) return false;
 	return true;
@@ -1491,9 +1535,9 @@ bool intro_screen2_m7()
 		bool skill_set = false;
 		do 
 		{
-			if ( vdp_check_key_press( KEY_x ) )
+			if ( vdp_check_key_press( KEY_q ) )
 			{
-				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_x ) );
+				do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_q ) );
 				exit_loop = true;
 				full_exit = true;
 				ret = false;
@@ -1569,7 +1613,7 @@ bool intro_key_select_m7()
 	TAB(4,11);M7COL(7);printf("1 :");
 	TAB(8,11);M7COL(3);printf("A    Z     <     >");
 	TAB(4,13);M7COL(7);printf("2 :");
-	TAB(8,13);M7COL(3);printf("@    ?     Z     Z");
+	TAB(8,13);M7COL(3);printf("@    ?     Z     X");
 	TAB(4,15);M7COL(7);printf("3 :");
 	TAB(8,15);M7COL(3);printf("Cursor Keys");
 
@@ -1580,9 +1624,9 @@ bool intro_key_select_m7()
 	bool exit_loop = false;
 	do 
 	{
-		if ( vdp_check_key_press( KEY_x ) )
+		if ( vdp_check_key_press( KEY_q ) )
 		{
-			do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_x ) );
+			do { vdp_update_key_state(); } while ( vdp_check_key_press( KEY_q ) );
 			exit_loop = true;
 			ret = false;
 		}
