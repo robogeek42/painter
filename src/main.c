@@ -138,6 +138,7 @@ int main_colour = 9; // Red
 typedef struct {
 	bool active;
 	Position pos[3];
+	uint24_t col[3];
 	clock_t expire_ticks;
 } Gap;
 Gap gaps[MAX_GAPS];
@@ -1528,6 +1529,11 @@ void create_gap(int dir)
 {
 	if (num_gaps >= MAX_GAPS) return;
 
+	PathSegment *pps = &level->paths[curr_path_seg];
+
+	if ( ( is_near( pos.x, pps->A.x, 3) && is_near( pos.y, pps->A.y, 3 ) ) || 
+	     ( is_near( pos.x, pps->B.x, 3) && is_near( pos.y, pps->B.y, 3 ) ) ) return;
+
 	int free_gap = 0;
 	for (int g=0;g<MAX_GAPS;g++)
 	{
@@ -1538,7 +1544,6 @@ void create_gap(int dir)
 	}
 	gaps[free_gap].expire_ticks = clock() + gap_time;
 
-	PathSegment *pps = &level->paths[curr_path_seg];
 	if ( pps->horiz )
 	{
 		Position *higher, *lower;
@@ -1550,18 +1555,17 @@ void create_gap(int dir)
 			lower = &pps->B;
 			higher = &pps->A;
 		}
-		gaps[free_gap].pos[0].y = pos.y;
-		gaps[free_gap].pos[1].y = pos.y;
-		gaps[free_gap].pos[2].y = pos.y;
-		if ( dir & BITS_LEFT )
+		for (int i=0;i<3;i++)
 		{
-			gaps[free_gap].pos[0].x = MIN(higher->x, pos.x+4);
-			gaps[free_gap].pos[1].x = MIN(higher->x, pos.x+5);
-			gaps[free_gap].pos[2].x = MIN(higher->x, pos.x+6);
-		} else {
-			gaps[free_gap].pos[0].x = MAX(lower->x, pos.x-4);
-			gaps[free_gap].pos[1].x = MAX(lower->x, pos.x-5);
-			gaps[free_gap].pos[2].x = MAX(lower->x, pos.x-6);
+			gaps[free_gap].pos[i].y = pos.y;
+			if ( dir & BITS_LEFT )
+			{
+				gaps[free_gap].pos[i].x = MIN(higher->x, pos.x+4+i);
+				gaps[free_gap].col[i] = readPixelColour( sys_vars, pos.x+4+i, pos.y );
+			} else {
+				gaps[free_gap].pos[i].x = MAX(lower->x, pos.x-5-i);
+				gaps[free_gap].col[i] = readPixelColour( sys_vars, pos.x-5-i, pos.y );
+			}
 		}
 	} else {
 		Position *higher, *lower;
@@ -1573,19 +1577,28 @@ void create_gap(int dir)
 			lower = &pps->B;
 			higher = &pps->A;
 		}
-		gaps[free_gap].pos[0].x = pos.x;
-		gaps[free_gap].pos[1].x = pos.x;
-		gaps[free_gap].pos[2].x = pos.x;
-		if ( dir & BITS_LEFT )
+		for (int i=0;i<3;i++)
 		{
-			gaps[free_gap].pos[0].y = MIN(higher->y, pos.y+4);
-			gaps[free_gap].pos[1].y = MIN(higher->y, pos.y+5);
-			gaps[free_gap].pos[2].y = MIN(higher->y, pos.y+6);
-		} else {
-			gaps[free_gap].pos[0].y = MAX(lower->y, pos.y-4);
-			gaps[free_gap].pos[1].y = MAX(lower->y, pos.y-5);
-			gaps[free_gap].pos[2].y = MAX(lower->y, pos.y-6);
+			gaps[free_gap].pos[i].x = pos.x;
+			if ( dir & BITS_UP )
+			{
+				gaps[free_gap].pos[i].y = MIN(higher->y, pos.y+4+i);
+				gaps[free_gap].col[i] = readPixelColour( sys_vars, pos.x, pos.y+4+i );
+			} else {
+				gaps[free_gap].pos[i].y = MAX(lower->y, pos.y-5-i);
+				gaps[free_gap].col[i] = readPixelColour( sys_vars, pos.x, pos.y-5-i );
+			}
 		}
+	}
+	for (int i=0;i<3;i++)
+	{
+		if ( gaps[free_gap].col[i] == 0xFFFFFF )
+		{
+			gaps[free_gap].col[i] = 15;
+		} else {
+			gaps[free_gap].col[i] = 8;
+		}
+
 	}
 
 	gaps[free_gap].active = true;
@@ -1623,7 +1636,7 @@ void expire_gaps()
 			num_gaps--;
 			for (int i=0;i<3;i++)
 			{
-				vdp_gcol(0, 15);
+				vdp_gcol(0, gaps[g].col[i] );
 				vdp_point( gaps[g].pos[i].x, gaps[g].pos[i].y );
 			}
 			if ( sound_on )
