@@ -28,3 +28,6 @@ install: bin/$(NAME).bin
 run: install
 	cd ~/agon/fab-agon-emulator ;\
 	./fab-agon-emulator --firmware console8 --vdp src/vdp/vdp_console8.so 
+
+package: install
+	zip -r painter_v1.zip painter levels img

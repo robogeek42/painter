@@ -529,3 +529,14 @@ bool wait_for_any_key_with_exit(uint8_t exit_key)
 	return true;
 }
 
+bool wait_for_any_key_with_exit_timeout(uint8_t exit_key, int timeout)
+{
+	clock_t timeout_ticks = clock()+timeout;
+	do 
+	{
+		vdp_update_key_state();
+	} while( key_pressed_code == 0 && timeout_ticks > clock() );
+	if ( key_pressed_code == exit_key) return false;
+	return true;
+}
+

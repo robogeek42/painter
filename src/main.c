@@ -102,7 +102,16 @@ typedef struct {
 	Shape *shapes;
 } Level;
 
-#define MAX_LEVELS 4
+#define MAX_LEVELS 6
+char *level_names[MAX_LEVELS] = {
+	"levels/level1.data",
+	"levels/level2.data",
+	"levels/level3.data",
+	"levels/level4.data",
+	"levels/level3.data",
+	"levels/level4.data",
+};
+
 Level *level = NULL;
 
 int cl = 0; // current level
@@ -183,7 +192,7 @@ void move_enemies();
 void play_beep();
 void play_wah_wah(int duration);
 void play_crash();
-Level* load_level(char *fname_pattern, int lnum);
+Level* load_level(int lnum);
 void set_skill(int s);
 bool intro_screen2_m7();
 bool intro_screen1_m7();
@@ -238,7 +247,7 @@ int main(int argc, char *argv[])
 	vdp_cursor_enable( false );
 
 	TAB(17,11);printf("LOADING\n");
-	level = load_level("levels/level%1d.data", cl+1);
+	level = load_level(cl);
 	if (level == NULL)
 	{
 		printf("Failed to load level\n");
@@ -362,7 +371,7 @@ bool start_new_level()
 	// next level
 	cl++;
 
-	level = load_level("ped/level%1d.data", cl+1);
+	level = load_level(cl);
 	if (level==NULL)
 	{
 		printf("Failed to load level\n");
@@ -383,7 +392,7 @@ bool start_new_level()
 	update_scores();
 
 	print_box_prompt("READY?",12,11);
-	if (!wait_for_any_key_with_exit(KEY_q)) return false;
+	if (!wait_for_any_key_with_exit_timeout(KEY_q, 100)) return false;
 	start_level();
 	return true;
 }
@@ -394,7 +403,7 @@ bool reload_level()
 	free( level->shapes );
 	free( level );
 	level = NULL;
-	level = load_level("ped/level%1d.data", cl+1);
+	level = load_level(cl);
 	if (level==NULL)
 	{
 		printf("Failed to load level\n");
@@ -561,7 +570,7 @@ bool game_loop()
 					restart_level = false;
 					if ( ! reload_level() ) exit(-1);
 					print_box_prompt("Oh Dear! READY?",12,11);
-					if (!wait_for_any_key_with_exit(KEY_q)) 
+					if (!wait_for_any_key_with_exit_timeout(KEY_q,200)) 
 					{
 						is_exit = true;
 					}
@@ -1312,16 +1321,12 @@ void play_crash()
 						);
 }
 
-
-Level* load_level(char *fname_pattern, int lnum)
+Level* load_level(int lnum)
 {
 	FILE *fp;
 
-	char fname[60] = {};
-	sprintf(fname, fname_pattern, lnum);
-
-	if ( !(fp = fopen( fname, "rb" ) ) ) {
-		printf("Err open %s\n",fname);
+	if ( !(fp = fopen( level_names[lnum], "rb" ) ) ) {
+		printf("Err open %s\n",level_names[lnum]);
 		return NULL;
 	}
 
@@ -1369,36 +1374,40 @@ Level* load_level(char *fname_pattern, int lnum)
 
 	switch (lnum)
 	{
-		case 0:
-			// no level "0"
-			break;
-		case 1: 
+		case 0: 
 			newlevel->bonus = 2000; 
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			break;
-		case 2: 
+		case 1: 
 			newlevel->bonus = 2600; 
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 29;
 			enemy_start_segment[2] = 23;
 			break;
-		case 3: 
+		case 2: 
 			newlevel->bonus = 3000; 
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 33;
 			enemy_start_segment[2] = 36;
 			break;
-		case 4: 
-		case 5: 
+		case 3: 
 			newlevel->bonus = 4000; 
 			newlevel->num_enemies = 2;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 7;
 			enemy_start_segment[2] = 11;
 			break;
+		case 4: 
+			newlevel->bonus = 4500; 
+			newlevel->num_enemies = 2;
+			enemy_start_segment[0] = 3;
+			enemy_start_segment[1] = 33;
+			enemy_start_segment[2] = 36;
+			break;
+		case 5: 
 		default: 
 			newlevel->bonus = 5000; 
 			newlevel->num_enemies = 3;
