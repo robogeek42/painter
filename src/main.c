@@ -267,6 +267,7 @@ int main(int argc, char *argv[])
 				is_exit = false;
 				winner = false;
 				cl = 0;
+				score = 0;
 				if ( ! reload_level() ) exit(-1);
 			}
 		} while(play_again );
@@ -343,6 +344,7 @@ bool start_new_level()
 	{
 		is_exit = true;
 		winner = true;
+		end_game = true;
 		return false;
 	}
 
@@ -610,6 +612,7 @@ bool game_loop()
 		vdp_update_key_state();
 	} while (!is_exit && !end_game);
 
+	if (end_game && score > highscore) highscore = score;
 	
 	if (sound_on)
 	{
@@ -618,7 +621,7 @@ bool game_loop()
 
 	if ( winner )
 	{
-		print_box_prompt("  YOU WIN!!!  ",10,3);
+		print_box_prompt("  YOU WIN!!!  ",12,10);
 		wait_for_any_key();
 	}
 
@@ -673,7 +676,7 @@ void show_lives()
 {
 	//TAB(20,2);printf("%d",lives);
 	TAB(17,3);printf("        ");
-	for (int i=0; i< lives; i++)
+	for (int i=0; i< lives-1; i++)
 	{
 		vdp_adv_select_bitmap(0);
 		vdp_draw_bitmap(160-20+16*i,24);
@@ -857,9 +860,9 @@ void set_point( Position *ppos )
 				if (sound_on)
 				{
 					play_beep();
-					score += 10;
-					update_scores();
 				}
+				score += 10;
+				update_scores();
 				check_shape_complete();
 			}
 		}
