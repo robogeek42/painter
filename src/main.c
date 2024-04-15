@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
 	srand(clock());
 
 	// setup complete
-	vdp_mode(gMode);
+	vdp_mode(7);
 	vdp_logical_scr_dims(false);
 	vdp_cursor_enable( false );
 
