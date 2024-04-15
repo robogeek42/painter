@@ -1376,11 +1376,13 @@ Level* load_level(int lnum)
 	{
 		case 0: 
 			newlevel->bonus = 2000; 
+			newlevel->colour_fill = 13;
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			break;
 		case 1: 
 			newlevel->bonus = 2600; 
+			newlevel->colour_fill = 9;
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 29;
@@ -1388,6 +1390,7 @@ Level* load_level(int lnum)
 			break;
 		case 2: 
 			newlevel->bonus = 3000; 
+			newlevel->colour_fill = 11;
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 33;
@@ -1395,6 +1398,7 @@ Level* load_level(int lnum)
 			break;
 		case 3: 
 			newlevel->bonus = 4000; 
+			newlevel->colour_fill = 14;
 			newlevel->num_enemies = 2;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 7;
@@ -1402,6 +1406,7 @@ Level* load_level(int lnum)
 			break;
 		case 4: 
 			newlevel->bonus = 4500; 
+			newlevel->colour_fill = 10;
 			newlevel->num_enemies = 2;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 33;
@@ -1410,6 +1415,7 @@ Level* load_level(int lnum)
 		case 5: 
 		default: 
 			newlevel->bonus = 5000; 
+			newlevel->colour_fill = 12;
 			newlevel->num_enemies = 3;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 7;
