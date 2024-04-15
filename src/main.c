@@ -75,8 +75,8 @@ typedef struct {
 } PathSegment;
 
 #define MAX_SHAPE_SEGS 30
-#define MAX_PATHS 50
-#define MAX_SHAPES 20
+#define MAX_PATHS 100
+#define MAX_SHAPES 25
 
 typedef struct {
 	int num_segments;
@@ -102,14 +102,15 @@ typedef struct {
 	Shape *shapes;
 } Level;
 
-#define MAX_LEVELS 6
+#define MAX_LEVELS 7
 char *level_names[MAX_LEVELS] = {
 	"levels/level1.data",
 	"levels/level2.data",
 	"levels/level3.data",
 	"levels/level4.data",
-	"levels/level3.data",
+	"levels/level5.data",
 	"levels/level4.data",
+	"levels/level5.data",
 };
 
 Level *level = NULL;
@@ -1374,52 +1375,60 @@ Level* load_level(int lnum)
 
 	switch (lnum)
 	{
-		case 0: 
+		default: 
+		case 0:  // level1.data
 			newlevel->bonus = 2000; 
-			newlevel->colour_fill = 13;
+			newlevel->colour_fill = 13; // magenta
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			break;
-		case 1: 
+		case 1:  // level2.data
 			newlevel->bonus = 2600; 
-			newlevel->colour_fill = 9;
+			newlevel->colour_fill = 9; // red
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 29;
 			enemy_start_segment[2] = 23;
 			break;
-		case 2: 
+		case 2:  // level3.data
 			newlevel->bonus = 3000; 
-			newlevel->colour_fill = 11;
+			newlevel->colour_fill = 11; // yellow
 			newlevel->num_enemies = 1;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 33;
 			enemy_start_segment[2] = 36;
 			break;
-		case 3: 
+		case 3:  // level4.data
 			newlevel->bonus = 4000; 
-			newlevel->colour_fill = 14;
+			newlevel->colour_fill = 14; // cyan
 			newlevel->num_enemies = 2;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 7;
 			enemy_start_segment[2] = 11;
 			break;
-		case 4: 
+		case 4:  // level5.data
 			newlevel->bonus = 4500; 
-			newlevel->colour_fill = 10;
+			newlevel->colour_fill = 2; // dark green
 			newlevel->num_enemies = 2;
-			enemy_start_segment[0] = 3;
-			enemy_start_segment[1] = 33;
-			enemy_start_segment[2] = 36;
+			enemy_start_segment[0] = 7;
+			enemy_start_segment[1] = 48;
+			enemy_start_segment[2] = 61;
 			break;
-		case 5: 
-		default: 
+		case 5:  // level4.data repeat 
 			newlevel->bonus = 5000; 
-			newlevel->colour_fill = 12;
+			newlevel->colour_fill = 4; // blue
 			newlevel->num_enemies = 3;
 			enemy_start_segment[0] = 3;
 			enemy_start_segment[1] = 7;
 			enemy_start_segment[2] = 11;
+			break;
+		case 6:  // level5.data repeat
+			newlevel->bonus = 4500; 
+			newlevel->colour_fill = 5; // dark mag
+			newlevel->num_enemies = 3;
+			enemy_start_segment[0] = 7;
+			enemy_start_segment[1] = 48;
+			enemy_start_segment[2] = 61;
 			break;
 	}
 	
@@ -1442,12 +1451,12 @@ void set_skill(int s)
 		case 2:
 			skill = 2;
 			enemy_skip_every = 5;
-			enemy_chase_percent = 10;
+			enemy_chase_percent = 20;
 			break;
 		case 3:
 			skill = 3;
 			enemy_skip_every = 5;
-			enemy_chase_percent = 25;
+			enemy_chase_percent = 40;
 			break;
 		case 4:
 			skill = 4;
@@ -1457,7 +1466,7 @@ void set_skill(int s)
 		case 5:
 			skill = 5;
 			enemy_skip_every = 0;
-			enemy_chase_percent = 25;
+			enemy_chase_percent = 75;
 			break;
 		case 6:
 			skill = 6;
