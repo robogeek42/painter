@@ -194,6 +194,8 @@ void setup_sound_channels();
 void create_gap(int dir);
 void expire_gaps();
 void reset_gaps();
+bool load_highscore();
+bool save_highscore();
 
 static volatile SYSVAR *sys_vars = NULL;
 
@@ -252,6 +254,8 @@ int main(int argc, char *argv[])
 		setup_sound_channels();
 	}
 
+	load_highscore();
+
 	if ( intro_screen1_m7() )
 	{
 		bool play_again = false;
@@ -272,6 +276,8 @@ int main(int argc, char *argv[])
 			}
 		} while(play_again );
 	}
+	
+	save_highscore();
 
 	TAB(0,26);COL(15);printf("Goodbye!\n");
 
@@ -1858,3 +1864,31 @@ void reset_gaps()
 	num_gaps = 0;
 }
 
+bool load_highscore()
+{
+	FILE *fp;
+
+	if ( !(fp = fopen( "highscore", "rb" ) ) ) {
+		return false;
+	}
+
+	fread(&highscore, sizeof(int), 1, fp);
+
+	fclose(fp);
+	
+	return true;
+}
+
+bool save_highscore()
+{
+	FILE *fp;
+
+	if ( !(fp = fopen( "highscore", "wb" ) ) ) {
+		return false;
+	}
+
+	fwrite(&highscore, sizeof(int), 1, fp);
+
+	fclose(fp);
+	return true;
+}
