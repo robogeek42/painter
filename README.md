@@ -11,3 +11,4 @@ load painter
 run
 ```
 
+![painter screenshot](painter_1.png "Painter for the Agon")
