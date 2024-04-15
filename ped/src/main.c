@@ -106,8 +106,8 @@ typedef struct {
 
 Level *level;
 
-#define MAX_PATHS 50
-#define MAX_SHAPES 20
+#define MAX_PATHS 100
+#define MAX_SHAPES 25
 
 // counters
 clock_t key_wait_ticks;
@@ -165,94 +165,6 @@ int main(int argc, char *argv[])
 	vdp_logical_scr_dims(true);
 	vdp_cursor_enable( true );
 	return 0;
-}
-
-void clear_line(int y)
-{
-	TAB(0,y);
-	for ( int i=0; i<40; i++ )
-	{
-		printf(" ");
-	}
-}
-
-int input_int(int x, int y, char *msg)
-{
-	int num;
-	TAB(x,y);
-	printf("%s:",msg);
-	scanf("%d",&num);
-	clear_line(y);
-	return num;
-}
-char input_char(int x, int y, char *msg)
-{
-	char buf[30];
-	TAB(x,y);
-	printf("%s:",msg);
-	scanf("%[^\n]s",buf);
-	clear_line(y);
-	return buf[0];
-}
-
-char * getline(void) {
-    char * line = malloc(100), * linep = line;
-    size_t lenmax = 100, len = lenmax;
-    int c;
-
-    if(line == NULL)
-        return NULL;
-
-    for(;;) {
-        c = fgetc(stdin);
-        if(c == EOF)
-            break;
-
-		if(c == 0x7F)
-		{
-			if (line > linep)
-			{
-				line--;
-				continue;
-			}
-		}
-
-        if(--len == 0) {
-            len = lenmax;
-            char * linen = realloc(linep, lenmax *= 2);
-
-            if(linen == NULL) {
-                free(linep);
-                return NULL;
-            }
-            line = linen + (line - linep);
-            linep = linen;
-        }
-
-        if((*line++ = c) == '\n')
-            break;
-    }
-    *line = '\0';
-    return linep;
-}
-void input_string(int x, int y, char *msg, char *input, unsigned int max)
-{
-	char *buffer;
-
-	TAB(x,y);
-	printf("%s:",msg);
-	buffer = getline();
-	if (strlen(buffer)>max)
-	{
-		strncpy(input, buffer, max);
-		input[max-1]=0;
-	}
-	else
-	{
-		strcpy(input, buffer);
-	}
-	free(buffer);
-	clear_line(y);
 }
 
 bool input_path_segment_horiz(PathSegment *pps)
@@ -473,14 +385,14 @@ bool enter_shape(int snum)
 	if ( ok )
 	{
 		// check they are all different
-		for (int s=0; s < level->shapes[snum].num_segments - 1; s++)
+		for (int s=0; s < num_segs - 1; s++)
 		{
-			for (int c=1; c < level->shapes[snum].num_segments ;c++)
+			for (int c=s+1; c < num_segs ;c++)
 			{
 				if (segs[s]==segs[c]) 
 				{
 					clear_line(1);
-					TAB(0,1);printf("segs same %d %d\n",s,c);
+					TAB(0,1);printf("segs same %d(%d) %d(%d)  \n",s,segs[s],c,segs[c]);
 					ok = false;
 					break;
 				}
@@ -663,6 +575,20 @@ void game_loop()
 				char k=getchar(); 
 				if (k=='y' || k=='Y') {
 					level->num_path_segments--;
+				}
+				changed=true;
+			}
+		}
+		if ( vdp_check_key_press( KEY_minus ) )  // delete most recent shape
+		{
+			if (key_wait_ticks < clock()) 
+			{
+				key_wait_ticks = clock() + key_wait;
+				clear_line(1);
+				TAB(0,1);printf("Del shape %d: Are you sure?",level->num_shapes-1);
+				char k=getchar(); 
+				if (k=='y' || k=='Y') {
+					level->num_shapes--;
 				}
 				changed=true;
 			}
@@ -976,9 +902,9 @@ void draw_level_debug()
 		TAB(25,0);COL(2);printf("A");COL(1);printf("-%d-",p);COL(3);printf("B");COL(15);
 		vdp_gcol(0,1);
 		draw_path_segment( &level->paths[p] );
-		//TAB(0,1+p);printf("%d: A %d,%d B %d,%d", p, 
-		//		paths[p].A.x, paths[p].A.y, paths[p].B.x, paths[p].B.y);
-		//TAB(0,1);printf("%d %d",level->paths[p].num_validA, level->paths[p].num_validB);
+		TAB(8,1);printf("%d: A %d,%d B %d,%d", p, 
+				level->paths[p].A.x, level->paths[p].A.y, level->paths[p].B.x, level->paths[p].B.y);
+		//TAB(8,1);printf("%d %d",level->paths[p].num_validA, level->paths[p].num_validB);
 		for (int n=0;n<3;n++)
 		{
 			PathSegment *pps;
@@ -1002,9 +928,9 @@ void draw_level_debug()
 				draw_path_segment_label( pps, str, 3, -1 );
 			}
 		}
-		TAB(8,1);printf("Press Any key");
+		//if( !wait_for_any_key_with_exit(KEY_x) ) break;
 		wait();
-		TAB(8,1);printf("             ");
+		clear_line(1);
 		draw_level(false);
 	}
 	clear_drawing();
